@@ -69,6 +69,7 @@ export interface Session {
   revcloud_person_id: string;
   expected_revenue: number;
   plugins: PluginInfo[];
+  plugin_json: Record<string, unknown>[];
   clickids: Record<string, string>;
   events: SessionEvent[];
   ip: IpInfo;
@@ -94,6 +95,13 @@ function parseEvents(text: string): SessionEvent[] {
       raw: d,
     };
   });
+}
+
+export function parsePluginJson(value: unknown): Record<string, unknown>[] {
+  const parsed = typeof value === "string" ? safeJson<unknown>(value, []) : value;
+  if (Array.isArray(parsed)) return parsed.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item));
+  if (parsed && typeof parsed === "object") return [parsed as Record<string, unknown>];
+  return [];
 }
 
 function parsePlugins(text: string): PluginInfo[] {
@@ -156,6 +164,7 @@ export function parseSessionRow(r: Record<string, string>): Session {
       revcloud_person_id: r.revcloud_person_id ?? "",
       expected_revenue: Number(r.expected_revenue) || 0,
       plugins: parsePlugins(r.plugins_json ?? ""),
+      plugin_json: parsePluginJson(r.plugin_json),
       clickids: Object.fromEntries(
         Object.entries(safeJson<Record<string, string>>(r.clickids_json || r.clickids || "", {}))
           .filter(([, v]) => v != null && String(v).trim() !== ""),

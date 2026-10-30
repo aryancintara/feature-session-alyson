@@ -31,6 +31,12 @@ describe("detail events list", () => {
     expect(d.session?.events).toHaveLength(2);
     expect(d.ip.ip).toBe("1.2.3.4");
   });
+  it("keeps plugin_json from the detail response", async () => {
+    const { parseSessionDetail } = await import("./sessionDetail");
+    const plugin = { plugin_id: "prepop", execution_id: "exec_1", step_id: "prepop_response_received" };
+    const d = parseSessionDetail({ session_id: "s1", event_count: 1, plugin_json: [plugin], events: [] });
+    expect(d.session?.plugin_json).toEqual([plugin]);
+  });
   it("unwraps a Lambda-style string body", async () => {
     const { parseSessionDetail } = await import("./sessionDetail");
     const d = parseSessionDetail({ statusCode: 200, body: JSON.stringify({ session_id: "x", events: [{ type: "track", event_name: "a", timestamp: "t", payload: {} }] }) });

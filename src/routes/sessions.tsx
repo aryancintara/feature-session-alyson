@@ -1061,6 +1061,43 @@ function Sessions() {
         )}
         {selected && (
           <div className="col-span-12">
+            {detailLoading ? <CardSkeleton title="Plugin JSON" rows={4} /> :
+            <div className="rounded-xl border border-border bg-card">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Plugin JSON
+                </div>
+                <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                  {detailReady ? `${selected.plugin_json.length} ${selected.plugin_json.length === 1 ? "plugin" : "plugins"}` : "—"}
+                </span>
+              </div>
+              <div className="p-3">
+                {detailReady && selected.plugin_json.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No plugin_json on this session.</p>
+                )}
+                {detailReady && selected.plugin_json.length > 0 && (
+                  <ol className="flex flex-col gap-1">
+                    {selected.plugin_json.map((plugin, i) => (
+                      <li key={String(plugin.execution_id ?? plugin.step_id ?? i)} className="rounded-md border border-border bg-background/40">
+                        <div className="flex flex-wrap items-center gap-2 px-2 py-1.5 text-[11px]">
+                          <span className="font-medium">{String(plugin.plugin_id ?? plugin.step_name ?? "plugin")}</span>
+                          <span className="text-muted-foreground">{String(plugin.step_id ?? "")}</span>
+                          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">{String(plugin.timestamp ?? "")}</span>
+                        </div>
+                        <pre className="max-h-64 overflow-auto border-t border-border px-3 py-2 font-mono text-[10px] leading-5 text-muted-foreground">
+{JSON.stringify(plugin, null, 2)}
+                        </pre>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            </div>}
+          </div>
+        )}
+
+        {selected && (
+          <div className="col-span-12">
             {detailLoading ? <CardSkeleton title="Event Payloads" rows={6} /> :
             <div className="rounded-xl border border-border bg-card">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">

@@ -1,4 +1,4 @@
-import { parseSessionRow, type IpInfo, type Session, type SessionEvent } from "./sessionData";
+import { parsePluginJson, parseSessionRow, type IpInfo, type Session, type SessionEvent } from "./sessionData";
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -68,11 +68,12 @@ export function parseSessionDetail(value: unknown): SessionDetail {
       row[k] = String(v);
     }
     row.clickids_json = JSON.stringify(object(detail.clickids));
-    session = { ...parseSessionRow(row), ip: parsedIp, events };
+    if (detail.plugin_json != null) row.plugin_json = typeof detail.plugin_json === "string" ? detail.plugin_json : JSON.stringify(detail.plugin_json);
+    session = { ...parseSessionRow(row), ip: parsedIp, events, plugin_json: parsePluginJson(detail.plugin_json ?? row.plugin_json) };
   }
   return { ip: parsedIp, events, session };
 }
 
 export function applySessionDetail(session: Session, detail: SessionDetail): Session {
-  return { ...session, ip: detail.ip, events: detail.events };
+  return { ...session, ip: detail.ip, events: detail.events, plugin_json: detail.session?.plugin_json ?? session.plugin_json };
 }
