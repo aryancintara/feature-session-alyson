@@ -28,6 +28,7 @@ describe("session API range and count contract", () => {
     expect(sessionRequest("2026-10-28", "2026-10-29", 200, "quiz_start").get("has_quiz_start")).toBe("true");
     expect(sessionRequest("2026-10-28", "2026-10-29", 200, "partial_lead").get("has_partial_lead")).toBe("true");
     expect(sessionRequest("2026-10-28", "2026-10-29", 200, "consent_given").get("has_consent")).toBe("true");
+    expect(sessionRequest("2026-10-28", "2026-10-29", 200, "revenue").get("has_revenue")).toBe("true");
     expect(sessionRequest("2026-10-28", "2026-10-29").has("has_quiz_start")).toBe(false);
   });
   it("uses the response total of 1053 for Quiz Start, not the 200 rows", () => {

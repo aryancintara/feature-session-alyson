@@ -31,7 +31,7 @@ const JOURNEY_LABELS: Record<JourneyFilter, string> = {
   qualified_connected: "Qualified / Connected",
   meeting: "Meeting",
   listing: "Listing",
-  revenue: "Revenue",
+  revenue: "Revenue > 0",
   consent_given: "Consent Given",
 };
 import { sessionDate } from "@/lib/sessionRange";
@@ -114,7 +114,6 @@ function Sessions() {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"all" | "inherited" | "synthetic" | "native">("all");
   const [utmFilter, setUtmFilter] = useState<string>("all");
-  // Journey filters are sent to the API on Refresh; they are never applied to downloaded rows.
   const [flagFilter, setFlagFilter] = useState<"all" | JourneyFilter>("all");
 
   const [preset, setPreset] = useState<DatePreset>("24h");
@@ -522,19 +521,19 @@ function Sessions() {
 
         <select
           value={flagFilter}
-          onChange={(e) => setFlagFilter(e.target.value as typeof flagFilter)}
+          onChange={(e) => {
+            const next = e.target.value as typeof flagFilter;
+            if (next === flagFilter) return;
+            setFlagFilter(next);
+            loadRange(preset, customFrom, customTo, next === "all" ? null : next);
+          }}
           className="h-8 rounded-md border border-border bg-card px-2 text-xs"
         >
           <option value="all">Any Journey</option>
           {(Object.keys(JOURNEY_LABELS) as JourneyFilter[]).map((j) => (
             <option key={j} value={j}>{JOURNEY_LABELS[j]}</option>
           ))}
-          <option value="revenue_gt_0" disabled>Revenue &gt; 0 (not in API)</option>
-          <option value="button_click" disabled>Button Click (not in API)</option>
         </select>
-        {draftJourney !== appliedJourney && (
-          <span className="text-[11px] text-muted-foreground">Press Refresh to apply</span>
-        )}
 
         <div className="ml-auto text-[11px] text-muted-foreground">
           {filtered.length.toLocaleString()} shown · {fmt(matchingTotal)} matching
