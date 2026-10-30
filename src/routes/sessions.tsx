@@ -70,8 +70,17 @@ type DatePreset = "24h" | "7d" | "30d" | "custom";
 // empty until a time is also chosen, which left Apply disabled after picking a date.
 const parseLocalDateTime = sessionDate;
 
-function isoDaysAgo(days: number): string {
-  return new Date(Date.now() - days * 86400_000).toISOString();
+function rangeForPreset(preset: DatePreset, customFrom = "", customTo = "") {
+  const anchor = new Date();
+  const toIso = new Date(anchor.getTime() + 60_000).toISOString();
+  const fromIso = (days: number) => new Date(anchor.getTime() - days * 86400_000).toISOString();
+  if (preset === "24h") return { from: fromIso(1), to: toIso };
+  if (preset === "7d") return { from: fromIso(7), to: toIso };
+  if (preset === "30d") return { from: fromIso(30), to: toIso };
+  const from = parseLocalDateTime(customFrom);
+  const to = parseLocalDateTime(customTo, true);
+  if (!from || !to || from >= to) return { from: fromIso(1), to: toIso };
+  return { from: from.toISOString(), to: to.toISOString() };
 }
 
 // UCT-attributed revenue sessions have no intermediate funnel telemetry for
@@ -128,8 +137,11 @@ function Sessions() {
     journeyHonored: boolean;
     counts: SessionCounts | null;
   }>({ connected: false, rows: [], total: null, error: null, loading: false, latestSessionAt: null, journeyHonored: true, counts: null });
-  const [requestedRange, setRequestedRange] = useState<{ from: string; to: string; journey: JourneyFilter | null } | null>(null);
-  const appliedJourney = requestedRange?.journey ?? null;
+  const [requestedRange, setRequestedRange] = useState<{ from: string; to: string; journey: JourneyFilter | null }>(() => ({
+    ...rangeForPreset("24h"),
+    journey: null,
+  }));
+  const appliedJourney = requestedRange.journey;
   const draftJourney = flagFilter === "all" ? null : flagFilter;
 
   const live = athena.connected && !athena.error;
@@ -146,21 +158,10 @@ function Sessions() {
     },
   };
 
-  // Anchor presets to the newest session in cache so "Last 24h" always shows
-  // the most recent 24 hours of available data (source refreshes daily).
-  const range = useMemo(() => {
-    const anchor = new Date();
-    const toIso = new Date(anchor.getTime() + 60_000).toISOString(); // small pad
-    const fromIso = (days: number) => new Date(anchor.getTime() - days * 86400_000).toISOString();
-    if (preset === "24h") return { from: fromIso(1), to: toIso };
-    if (preset === "7d") return { from: fromIso(7), to: toIso };
-    if (preset === "30d") return { from: fromIso(30), to: toIso };
-    // Custom range is applied only after validation, so invalid dates never reach toISOString.
-    const from = parseLocalDateTime(customFrom);
-    const to = parseLocalDateTime(customTo, true);
-    if (!from || !to || from >= to) return { from: fromIso(1), to: toIso };
-    return { from: from.toISOString(), to: to.toISOString() };
-  }, [preset, customFrom, customTo]);
+  const range = useMemo(() => rangeForPreset(preset, customFrom, customTo), [preset, customFrom, customTo]);
+  const loadRange = (nextPreset: DatePreset, from = customFrom, to = customTo, journey = draftJourney) => {
+    setRequestedRange({ ...rangeForPreset(nextPreset, from, to), journey });
+  };
 
   const draftFromDate = parseLocalDateTime(draftFrom);
   const draftToDate = parseLocalDateTime(draftTo, true);
@@ -176,7 +177,6 @@ function Sessions() {
 
   // Fetch exactly one API page. Never replace the API total with sample/page counts.
   useEffect(() => {
-    if (!requestedRange) return;
     let cancelled = false;
     const controller = new AbortController();
     setAthena((s) => ({ ...s, rows: [], total: null, error: null, loading: true, counts: null }));
@@ -329,7 +329,9 @@ function Sessions() {
             <button
               key={p.key}
               onClick={() => {
+                if (p.key === preset) return;
                 setPreset(p.key);
+                if (p.key !== "custom") loadRange(p.key);
               }}
               className={cn(
                 "rounded px-2 py-1 text-[11px] uppercase tracking-wider",
@@ -365,6 +367,7 @@ function Sessions() {
               onClick={() => {
                 setCustomFrom(draftFrom);
                 setCustomTo(draftTo);
+                loadRange("custom", draftFrom, draftTo);
               }}
               className="h-8 rounded-md border border-border bg-background px-2 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
             >
