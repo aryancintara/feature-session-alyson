@@ -566,11 +566,17 @@ function Sessions() {
                   {!syncBusy && filtered.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-4 py-10 text-center">
-                        <p className="text-sm font-medium">{sessions.length ? "No matching sessions in the loaded page" : athena.error ? "Sessions could not be loaded" : journeyIgnored ? `${journeyLabel(appliedJourney)} filter not supported by the API yet` : athena.total === 0 ? (appliedJourney ? `No ${journeyLabel(appliedJourney)} sessions in this date range` : "No sessions in this date range") : "No sessions loaded yet"}</p>
+                        <p className="text-sm font-medium">{athena.error ? "Sessions could not be loaded" : "No results found"}</p>
                         <p className="mt-2 text-xs text-muted-foreground">
-                          {sessions.length
-                            ? `None of the ${sessions.length.toLocaleString()} loaded sessions match the search, source or UTM filters.`
-                            : athena.error || ""}
+                          {athena.error
+                            ? athena.error
+                            : sessions.length
+                              ? `None of the ${sessions.length.toLocaleString()} loaded sessions match the search, source or UTM filters.`
+                              : appliedJourney
+                                ? `No ${journeyLabel(appliedJourney)} sessions in this date range.`
+                                : athena.total === 0
+                                  ? "No sessions in this date range."
+                                  : ""}
                         </p>
                         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                           {canLookup && (
@@ -579,8 +585,14 @@ function Sessions() {
                               {lookupLoading ? "Looking up session…" : "Look up this session ID"}
                             </Button>
                           )}
-                          {sessions.length > 0 && (
-                            <Button variant="outline" size="sm" onClick={() => { setQuery(""); setSourceFilter("all"); setUtmFilter("all"); setFlagFilter("all"); }}>
+                          {(query || sourceFilter !== "all" || utmFilter !== "all" || flagFilter !== "all") && (
+                            <Button variant="outline" size="sm" onClick={() => {
+                              setQuery("");
+                              setSourceFilter("all");
+                              setUtmFilter("all");
+                              setFlagFilter("all");
+                              if (flagFilter !== "all") loadRange(preset, customFrom, customTo, null);
+                            }}>
                               Clear filters
                             </Button>
                           )}
@@ -662,9 +674,11 @@ function Sessions() {
               </div>
               <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 text-center">
                 <Compass className="mb-3 h-6 w-6 text-muted-foreground" aria-hidden="true" />
-                <p className="text-sm font-medium">No session selected</p>
+                <p className="text-sm font-medium">No results found</p>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {sessions.length ? "No sessions match the current filters." : "No session details available yet."}
+                  {appliedJourney || query || sourceFilter !== "all" || utmFilter !== "all"
+                    ? "Try another filter or date range."
+                    : "No session details available yet."}
                 </p>
               </div>
             </div>
