@@ -1,0 +1,36 @@
+- [x] Verify missing session payload fix: first payload expands automatically, explicit Load events is available, and missing detail events are distinguished from reported counts. Real session payload visible; 15 tests pass, no page errors, build clean.
+- [x] Load session IP and full event payloads from the detail endpoint on row opening; 15 tests pass, live row opening makes one detail request and renders IP/events/full expandable payload, zero initial requests or page errors; build clean.
+- [x] Investigate empty Session Explorer journey filters: live loaded rows have false journey flags and zero revenue; show explicit page-scoped empty results, clear filters, and hide nonmatching details without new requests.
+- [x] Make Session Explorer API requests Refresh-only; opening the page and changing/applying dates do not load data.
+- [x] Correct Session Explorer UTC custom boundaries, response totals and page-size cap; eight tests pass and controlled browser response verifies October 5–27, page_size=200 and 200 of 105116 in Asia/Kolkata; build clean.
+- [x] Verify live Session API authentication and totals — securely replaced the saved key; existing x-api-key-only proxy loads 200 rows with response total 3,268 for Last 24h in the live UI.
+- [ ] Verify October 5–27 live total and remaining-page navigation — pagination continuation contract has not been supplied. No sample fallback or invented total.
+- [x] Add Cost sources Tune, Phonexa and SMS; omit Tune/Phonexa modifiers, support both SMS pricing formats; eight tests pass and browser verifies October 1–31 review with $10/1,000 = $0.01/send. Existing page hydration warning remains; no production rule was saved.
+- [x] Add the top-only Daily automatic check section without changing the existing manual check; verified live source totals, HomeLight 16 missing/200 different rows and CSV, controlled historical 404 and failed source handling, manual-check regression and narrow layout; 39 tests pass.
+- [x] Apply uploaded Create Rule contract: source choices, shared SMS columns, not_contains, optional end date, source-specific payloads; 13 tests and browser SMS/Phonexa flows pass with simulated 400 saves, no production writes.
+- [x] Keep Cost & Revenue navigation expanded and highlight active children.
+- [x] Wire integrity results and evidence to the existing parsed check response; 31 regression tests pass. Live HomeLight week October 12–18 returns five Pass results with evidence, one POST only, exclusive end October 19 and no page errors.
+- [x] Assess the supplied Reconciliation Phase 1 requirements against existing code and services, preserve the upload in SPEC, register derived acceptance checks and prepare the additive implementation plan; existing 17 tests pass, app unchanged.
+- [x] Execute the approved plan's dependency checks: inspect current TASKS snapshot/MCP catalogue, identify implemented OAuth/task persistence but unverified access and missing private upload contract; verify unchanged signed-out screen with zero page errors. No business writes or substitute backend.
+- [x] Update Phase 1 UI now: evidence workspace, aggregate differences/provenance, separate integrity checks, transient review activity/export/task-link notes and targeted revalidation; verified live populated check, manual draft review, desktop/mobile display and 24 tests. Drafts are not shared approvals or durable history.
+- [ ] Connect durable audit/task links and access-controlled revalidation — requires service contracts for these new capabilities, not for UI changes.
+- [x] Document the supplied Unified Reconciliation brief, partial acceptance criteria, and evidence-grounded discovery without changing the app or business records.
+- [x] Produce the smallest additive implementation plan and identify missing specification/access dependencies.
+- [ ] Incorporate the original separate Unified Reconciliation specification and acceptance attachments if broader conformance is required — blocked: originals were not supplied; Phase 1 workflow is now incorporated with derived acceptance checks (DISCOVERY S01).
+- [ ] Resolve production mappings and source/evidence capability tests — blocked: authoritative schemas/service repositories, account metadata and approved read-only access are missing (DISCOVERY S02–S10).
+- [x] Show workspace skeleton/fallback instead of blank content.
+- [x] Limit Needs attention to five sorted rows with filtered Events link.
+- [x] Update wizard date summary and display-only saved-date comparison.
+- [x] Keep drawer trace on one line with rule tooltip.
+- [x] Verify display changes and report limitations: no actual save performed; existing hydration warning remains outside this display pass.
+- [x] Hide heartbeat_recovered_session from Unified Leads custom identifiers.
+- [x] Show Unified Lead ID in the lead detail Bridge identifiers section.
+- [x] Hide source detail, submission method, channel, channel detail, campaign and campaign detail filters.
+- [x] Wire Rules Delete to POST /rules/inactive and hide the version locally (persisted hidden list).
+- [x] Preserve Reconciliation code and add loaded click/session attribution with exclusion and ambiguity display.
+- [x] Test Reconciliation display rules and run the live preview; 7 tests pass, live preview returns zero rows. Populated attribution and month-wide exclusion counts cannot be verified without service data; no joins or writes added.
+- [x] Replace Reconciliation steps with past-period/source controls and unavailable comparison display; preserve previous component in the same file.
+- [x] Connect POST /reconcile/check with exclusive end dates, returned totals/missing leads, and browser-remembered matched periods; preserve previous handler.
+- [x] Verify request dates, matched/unmatched states, and remembered completion after reload with controlled responses; 13 tests pass and build log is clean.
+- [x] Connect the exact Reconciliation check URL and parse Lambda string-body wrappers, preserving the previous handler. Live September 1 HomeLight check returned HTTP 200 with 398 leads and $24,944.73 on both sides. Verified browser-only Mark done survives reload without another API call; controlled mismatch/failure states and today restriction pass; 17 tests pass and build is clean.
+- [x] Test period restrictions and verify the replacement screen: 8 tests passed; day/week/month and source controls work, future dates blocked, old steps absent, browser reports no page errors and build log is clean. Live comparison/completion remains unverified and unavailable.

@@ -1,0 +1,220 @@
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { CheckCircle2, ChevronDown, XCircle } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { PageHeader } from "@/components/ui-bits";
+import { DataTable, Panel, Pill, Td } from "@/components/identity/bits";
+import { TenantSelect } from "@/components/revenue/RevenueBits";
+import { CostRevenueEventDrawer } from "@/components/cost-revenue/CostRevenueEventDrawer";
+import { NotSet } from "@/components/cost-revenue/bits";
+import { Button } from "@/components/ui/button";
+import { fmtCompact } from "@/lib/unifiedTablesData";
+import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { isActive, listRules, type ApiRule } from "@/lib/rulesApi";
+import { CR_EVENTS, CR_SOURCES, eventStatusTone, fmtTs, money, srcLabel, useCRRules, type CREvent } from "@/lib/costRevenueData";
+
+export const Route = createFileRoute("/cost-revenue/overview")({
+  head: () => ({
+    meta: [
+      { title: "Cost & Revenue Overview · Alyson CDP" },
+      { name: "description", content: "See money in and money out for the same sessions and fix issues before month-end close." },
+      { property: "og:title", content: "Cost & Revenue Overview · Alyson CDP" },
+      { property: "og:description", content: "See money in and money out for the same sessions and fix issues before month-end close." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
+  component: CostRevenueOverview,
+});
+
+const axis = { fontSize: 11, fill: "var(--color-muted-foreground)" };
+type Tone = "default" | "success" | "warning" | "destructive";
+const toneCls: Record<Tone, string> = { default: "text-foreground", success: "text-success", warning: "text-warning", destructive: "text-destructive" };
+
+function Tile({ label, value, sub, tone = "default", big, onClick, title }: { label: string; value: string; sub?: React.ReactNode; tone?: Tone; big?: boolean; onClick: () => void; title?: string }) {
+  return (
+    <button type="button" title={title} onClick={onClick} className={cn("flex h-full flex-col justify-start rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring", big && "sm:col-span-2")}>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={cn("mt-1 flex h-9 items-end font-semibold leading-none tabular-nums", big ? "text-3xl" : "text-xl", toneCls[tone])}>{value}</div>
+      {sub && <div className={cn("mt-1 text-xs", tone === "default" || tone === "success" ? "text-muted-foreground" : toneCls[tone])}>{sub}</div>}
+    </button>
+  );
+}
+
+const HOW_KEY = "cost-revenue-how-open:v1";
+function HowItWorks() {
+  const [open, setOpen] = useState(true);
+  useEffect(() => { try { const v = localStorage.getItem(HOW_KEY); if (v !== null) setOpen(v === "1"); } catch { /* ignore */ } }, []);
+  const toggle = () => setOpen((o) => { const n = !o; try { localStorage.setItem(HOW_KEY, n ? "1" : "0"); } catch { /* ignore */ } return n; });
+  return (
+    <div className="mx-6 mb-3 rounded-xl border border-border bg-card">
+      <button type="button" onClick={toggle} aria-expanded={open} className="flex w-full items-center justify-between px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+        How this works <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && <p className="border-t border-border px-4 py-3 text-sm text-foreground">① Rules calculate each amount → ② Events show every amount and the source row behind it → ③ Reconciliation re-checks the month before you lock a final number.</p>}
+    </div>
+  );
+}
+
+function Check({ ok, label, detail, to }: { ok: boolean; label: string; detail: string; to?: React.ReactNode }) {
+  return (
+    <li className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm">
+      {ok ? <CheckCircle2 className="h-4 w-4 text-success" /> : <XCircle className="h-4 w-4 text-warning" />}
+      <span className="w-40 font-medium">{label}</span>
+      <span className="flex-1 text-muted-foreground">{detail}</span>
+      {to}
+    </li>
+  );
+}
+
+type LastRun = { rule: string; version: number | null; month: string; source: string; source_label?: string; matched: number; net_change: number; stored_total?: number | null; calculated_total?: number | null; at: string };
+const SRC_NAMES: Record<string, string> = { homelight: "HomeLight", tune: "Tune" };
+const signed = (n: number) => (n > 0 ? `+${money(n)}` : n < 0 ? `−${money(-n)}` : money(0));
+const runOk = (r: LastRun | null) => !!r && r.matched > 0 && Math.round((r.net_change ?? 0) * 100) === 0;
+const runLine = (r: LastRun) => [
+  r.month ? new Date(`${r.month}-01T00:00:00Z`).toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }) : "",
+  r.source_label ?? SRC_NAMES[r.source] ?? r.source,
+  `${r.rule}${r.version != null ? ` v${r.version}` : ""}`,
+  r.at ? `run ${new Date(r.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "",
+].filter(Boolean).join(" · ");
+
+function MonthEndCheck({ run }: { run: LastRun | null }) {
+  if (!run) return (
+    <Panel title="Month-end check">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <p className="text-sm text-muted-foreground">Not run yet. Run Reconciliation before closing the month.</p>
+        <Button asChild size="sm"><Link to="/cost-revenue/reconciliation">Run Reconciliation</Link></Button>
+      </div>
+    </Panel>
+  );
+  const ok = runOk(run);
+  const nums: [string, string, string?][] = [
+    ["Stored total", run.stored_total != null ? money(run.stored_total) : "—"],
+    ["Recalculated total", run.calculated_total != null ? money(run.calculated_total) : "—"],
+    ["Difference", signed(run.net_change ?? 0), !run.net_change ? "text-muted-foreground" : run.net_change > 0 ? "text-success" : "text-destructive"],
+  ];
+  return (
+    <Panel title="Month-end check" description={runLine(run)} actions={<div className="flex items-center gap-3"><Pill tone={ok ? "success" : "warning"}>{ok ? "✓ Matches" : run.matched === 0 ? "0 rows matched" : "Difference found"}</Pill><Link to="/cost-revenue/reconciliation" className="text-xs text-primary hover:underline">Re-run →</Link></div>}>
+      <div className="grid gap-3 p-4 sm:grid-cols-3">
+        {nums.map(([l, v, c]) => <div key={l}><div className="text-xs text-muted-foreground">{l}</div><div className={cn("mt-1 text-2xl font-semibold tabular-nums", c)}>{v}</div></div>)}
+      </div>
+    </Panel>
+  );
+}
+
+function CostRevenueOverview() {
+  const nav = useNavigate();
+  const [sel, setSel] = useState<CREvent | null>(null);
+  const [tab, setTab] = useState<"trend" | "source">("trend");
+  const rules = useCRRules();
+  const ok = CR_EVENTS.filter((e) => e.status === "Processed");
+  const revenue = ok.filter((e) => e.type === "REVENUE").reduce((s, e) => s + e.amount, 0);
+  const cost = ok.filter((e) => e.type === "COST").reduce((s, e) => s + e.amount, 0);
+  const failed = CR_EVENTS.filter((e) => e.status === "Failed").length;
+  const pending = CR_EVENTS.filter((e) => e.status === "Pending").length;
+  const missing = CR_EVENTS.filter((e) => !e.sessionId?.trim()).length;
+  const total = CR_EVENTS.length;
+  const pct = total ? Math.round((ok.length / total) * 100) : 0;
+  const ruleName = (id: string) => rules.find((r) => r.id === id)?.name ?? id;
+  const dates = CR_EVENTS.map((e) => e.processedAt.slice(0, 10)).filter(Boolean).sort();
+
+  const byDay = new Map<string, { time: string; Revenue: number; Cost: number }>();
+  for (const e of ok) {
+    const t = e.processedAt.slice(5, 10);
+    const row = byDay.get(t) ?? { time: t, Revenue: 0, Cost: 0 };
+    if (e.type === "REVENUE") row.Revenue += e.amount; else row.Cost += e.amount;
+    byDay.set(t, row);
+  }
+  const trend = [...byDay.values()].sort((a, b) => a.time.localeCompare(b.time));
+  const bySource = CR_SOURCES.map((s) => ({
+    name: srcLabel(s),
+    Revenue: ok.filter((e) => e.source === s && e.type === "REVENUE").reduce((a, e) => a + e.amount, 0),
+    Cost: ok.filter((e) => e.source === s && e.type === "COST").reduce((a, e) => a + e.amount, 0),
+  }));
+  const attention = CR_EVENTS.filter((e) => e.status === "Pending" || e.status === "Failed")
+    .sort((a, b) => Number(b.status === "Failed") - Number(a.status === "Failed") || b.amount - a.amount);
+  const oldestTs = attention.map((e) => Date.parse(e.processedAt)).filter(Number.isFinite).sort((a, b) => a - b)[0];
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => setNow(Date.now()), []);
+  const oldestDays = oldestTs !== undefined && now !== null ? Math.max(0, Math.floor((now - oldestTs) / 86400000)) : null;
+  const recent = CR_EVENTS.slice(0, 8);
+  const pendAmt = CR_EVENTS.filter((e) => e.status === "Pending").reduce((a, e) => a + e.amount, 0);
+  const failAmt = CR_EVENTS.filter((e) => e.status === "Failed").reduce((a, e) => a + e.amount, 0);
+  const missingAmt = CR_EVENTS.filter((e) => !e.sessionId?.trim()).reduce((a, e) => a + e.amount, 0);
+  const bySrcIssues = CR_SOURCES.map((s) => `${srcLabel(s)} ${attention.filter((e) => e.source === s).length}`).join(" · ");
+  // Same logic as the Rules page "More than one active version" warning (live Rules API, grouped by rule_id).
+  const apiRules = useQuery({ queryKey: ["cr-rules"], queryFn: listRules, retry: false });
+  const byId = new Map<string, ApiRule[]>();
+  for (const r of apiRules.data ?? []) byId.set(r.rule_id, [...(byId.get(r.rule_id) ?? []), r]);
+  const multiNames = [...byId.values()].filter((v) => v.filter((r) => isActive(r.status)).length > 1).map((v) => v[0].name).sort((a, b) => a.localeCompare(b));
+  const multi = multiNames.length;
+  // Reconciliation has not run and no final amount is locked, so the month is never ready yet.
+  const ready: boolean = false;
+  const [lastRun, setLastRun] = useState<LastRun | null>(null);
+  useEffect(() => { try { const v = sessionStorage.getItem("cost-revenue-last-run:v1"); if (v) setLastRun(JSON.parse(v)); } catch { /* ignore */ } }, []);
+  const lnk = "text-xs text-primary hover:underline";
+  const go = (search: { status?: string; type?: string; missing?: boolean } = {}) => nav({ to: "/cost-revenue/events", search });
+
+  const row = (e: CREvent) => (
+    <tr key={e.id} className={cn("cursor-pointer hover:bg-muted/40", e.status === "Pending" && "bg-warning/5", e.status === "Failed" && "bg-destructive/5")} onClick={() => setSel(e)}>
+      <Td>{fmtTs(e.processedAt)}</Td><Td mono>{e.sessionId || <Pill tone="warning">Missing</Pill>}</Td><Td>{srcLabel(e.source) || <NotSet />}</Td><Td right>{money(e.amount)}</Td><Td><Pill tone={eventStatusTone(e.status)}>{e.status}</Pill></Td><Td>{ruleName(e.ruleId)} · v{e.ruleVersion}</Td>
+    </tr>
+  );
+
+  return (
+    <div className="pb-10">
+      <PageHeader title="Cost & Revenue" subtitle="See money in and money out for the same sessions, check where every number came from, and fix issues before month-end close." actions={<TenantSelect />} />
+      <HowItWorks />
+      {dates.length > 0 && <p className="-mt-2 mb-3 px-6 text-xs text-muted-foreground">Showing {dates[0]} to {dates[dates.length - 1]}</p>}
+      <div className="grid gap-3 px-6 sm:grid-cols-3 lg:grid-cols-7">
+        <Tile big label="Net revenue" value={money(revenue - cost)} sub={<><span className="block">Revenue {money(revenue)} − Cost {money(cost)}</span><span className="block">Stored total · Compare with recalculated in Reconciliation →</span></>} tone={revenue >= cost ? "success" : "destructive"} onClick={() => go({ status: "Processed" })} />
+        <Tile label="Revenue" value={money(revenue)} onClick={() => go({ type: "REVENUE" })} />
+        <Tile label="Cost" value={money(cost)} onClick={() => go({ type: "COST" })} />
+        <Tile label="Open issues" value={String(failed + pending)} title={`By source: ${bySrcIssues}`} sub={<><span className="block">{failed} failed · {pending} pending</span><span className="block">{money(pendAmt + failAmt)} at risk</span>{oldestDays !== null && <span className="block">Oldest: {oldestDays} day{oldestDays === 1 ? "" : "s"}</span>}</>} tone={failed + pending > 0 ? "destructive" : "default"} onClick={() => go({ status: "attention" })} />
+        <Tile label="Missing session IDs" value={String(missing)} sub={`${money(missingAmt)} in these rows`} tone={missing > 0 ? "warning" : "default"} onClick={() => go({ missing: true })} />
+        <Tile label="Processing health" value={`${pct}%`} sub={`processed (${ok.length} of ${total})`} onClick={() => go({ status: "Processed" })} />
+      </div>
+      <div className="mt-4 grid gap-4 px-6">
+        <MonthEndCheck run={lastRun} />
+        <Panel title="Month-end readiness" actions={<Pill tone={ready ? "success" : "warning"}>{ready ? "Ready to close" : "Not ready to close"}</Pill>}>
+          <ul className="divide-y divide-border">
+            <Check ok={failed + pending === 0} label="Open issues" detail={`${failed + pending} open (${failed} failed, ${pending} pending)`} to={<Link to="/cost-revenue/events" search={{ status: "attention" }} className={lnk}>Review →</Link>} />
+            <Check ok={missing === 0} label="Missing session IDs" detail={`${missing} rows · ${money(missingAmt)}`} to={<Link to="/cost-revenue/events" search={{ missing: true }} className={lnk}>Review →</Link>} />
+            {apiRules.isSuccess && <Check ok={multi === 0} label="Rules" detail={multi === 0 ? "No rule has more than one active version" : `${multi} rule${multi === 1 ? " has" : "s have"} more than one active version (${multiNames.join(", ")})`} to={<Link to="/cost-revenue/rules" className={lnk}>Rules →</Link>} />}
+            <Check ok={runOk(lastRun)} label="Reconciliation" detail={lastRun ? `${runLine(lastRun)} · ${lastRun.matched.toLocaleString()} row${lastRun.matched === 1 ? "" : "s"} matched · Δ ${signed(lastRun.net_change)}` : "Not run yet"} to={<Link to="/cost-revenue/reconciliation" className={lnk}>Open →</Link>} />
+            <Check ok={false} label="Final amount" detail="Not locked. Locking turns on when the lock API is connected." />
+          </ul>
+        </Panel>
+        <Panel
+          title={tab === "trend" ? "Cost & Revenue over time" : "Amount by source"}
+          description={tab === "trend" ? "Calculated amounts by day (UTC)" : "Calculated cost and revenue per source"}
+          actions={
+            <div role="tablist" className="inline-flex rounded-md border border-border bg-background p-0.5 text-xs">
+              {([["trend", "Trend"], ["source", "By source"]] as const).map(([k, l]) => (
+                <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cn("rounded px-2.5 py-1", tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>{l}</button>
+              ))}
+            </div>
+          }
+        >
+          <div className="h-72 px-3 pb-3 pt-5"><ResponsiveContainer width="100%" height="100%">
+            {tab === "trend" ? (
+              <LineChart data={trend} margin={{ top: 4, right: 12, left: 4, bottom: 0 }}><CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--color-border)" /><XAxis dataKey="time" tick={axis} axisLine={false} tickLine={false} minTickGap={24} /><YAxis tick={axis} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={48} /><Tooltip formatter={(v: number) => money(v)} /><Legend wrapperStyle={{ fontSize: 12 }} /><Line dataKey="Revenue" stroke="var(--color-primary)" strokeWidth={2.5} dot={false} /><Line dataKey="Cost" stroke="var(--color-warning)" strokeWidth={2.5} dot={false} /></LineChart>
+            ) : (
+              <BarChart data={bySource} margin={{ top: 4, right: 12, left: 4, bottom: 0 }}><CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--color-border)" /><XAxis dataKey="name" tick={axis} axisLine={false} tickLine={false} /><YAxis tick={axis} tickFormatter={fmtCompact} axisLine={false} tickLine={false} width={48} /><Tooltip formatter={(v: number) => money(v)} /><Legend wrapperStyle={{ fontSize: 12 }} /><Bar dataKey="Revenue" stackId="a" fill="var(--color-primary)" maxBarSize={56} /><Bar dataKey="Cost" stackId="a" fill="var(--color-warning)" radius={[4, 4, 0, 0]} maxBarSize={56} /></BarChart>
+            )}
+          </ResponsiveContainer></div>
+        </Panel>
+        <Panel title="Needs attention" description="Pending or failed events" actions={attention.length > 0 ? <Link to="/cost-revenue/events" search={{ status: "attention" }} className="whitespace-nowrap text-xs text-primary hover:underline">View all {attention.length} →</Link> : undefined}>
+          {attention.length ? (
+            <DataTable head={["Time", "Session", "Source", "Amount", "Status", "Rule"]} align={["left", "left", "left", "right", "left", "left"]}>{attention.slice(0, 5).map(row)}</DataTable>
+          ) : <p className="p-6 text-center text-sm text-muted-foreground">Nothing needs attention. Check Reconciliation next.</p>}
+        </Panel>
+        <Panel title="Recent events" actions={<Link to="/cost-revenue/events" className="text-xs text-primary">View all</Link>}>
+          <DataTable head={["Time", "Session", "Source", "Amount", "Status", "Rule"]} align={["left", "left", "left", "right", "left", "left"]}>{recent.map(row)}</DataTable>
+        </Panel>
+      </div>
+      <CostRevenueEventDrawer event={sel} onClose={() => setSel(null)} />
+    </div>
+  );
+}

@@ -1,0 +1,154 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { PageHeader } from "@/components/ui-bits";
+import { MetricCard, Panel, DataTable, Td, Bar, accuracyTone, Pill } from "@/components/identity/bits";
+import { ProcessDateSelect, EmptyState } from "@/components/identity/ProcessDateSelect";
+import { MetricRowSkeleton, TableSkeleton, ListSkeleton, ErrorState } from "@/components/identity/skeletons";
+import { accuracyQuery, methodLabel, fmt } from "@/lib/identityApi";
+
+export const Route = createFileRoute("/identity/accuracy")({
+  component: AccuracyPage,
+});
+
+function AccuracyPage() {
+  const [processDate, setProcessDate] = useState<string>("");
+  const { data, isPending, error, refetch } = useQuery(accuracyQuery(processDate || undefined));
+
+  const d = data?.daily ?? null;
+  const fields = d
+    ? [
+        { field: "Email", ...d.email },
+        { field: "Name", ...d.name },
+        { field: "Address", ...d.address },
+      ]
+    : [];
+
+  return (
+    <div className="pb-10">
+      <PageHeader
+        title="Identity Accuracy"
+        subtitle="Graph identities joined to SOT (revenue_leads_plus qualified stages) on anonymous_user, compared on email + name + address. SOT has no phone."
+        actions={
+          <ProcessDateSelect value={processDate} onChange={setProcessDate} resolved={data?.processDate ?? null} />
+        }
+      />
+
+      {isPending ? (
+        <MetricRowSkeleton count={5} />
+      ) : error ? (
+        <div className="px-6">
+          <div className="rounded-xl border border-border bg-card">
+            <ErrorState message={(error as Error).message} onRetry={() => refetch()} />
+          </div>
+        </div>
+      ) : !d ? (
+        <div className="px-6">
+          <div className="rounded-xl border border-border bg-card">
+            <EmptyState />
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 px-6 lg:grid-cols-5">
+          <MetricCard label="Accuracy" value={`${d.accuracyPct.toFixed(2)}%`} sub={data?.processDate ?? "latest"} tone="warning" />
+          <MetricCard label="SOT qualified leads" value={fmt(d.sotQualifiedLeads)} />
+          <MetricCard label="SOT joined" value={fmt(d.sotJoined)} sub="matched on anonymous_user" />
+          <MetricCard label="Compared" value={fmt(d.compared)} />
+          <MetricCard label="Unified matches" value={fmt(d.unifiedMatches)} tone="success" />
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 px-6 pt-4 lg:grid-cols-2">
+        <Panel title="Field breakdown" description="Compared vs matched per PII field (no phone in SOT)">
+          <DataTable head={["Field", "Compared", "Matches", "Accuracy"]} align={["left", "right", "right", "right"]}>
+            {isPending ? (
+              <TableSkeleton cols={4} rows={3} />
+            ) : (
+              fields.map((f) => {
+                const acc = f.compared ? (f.matches / f.compared) * 100 : 0;
+                return (
+                  <tr key={f.field} className="hover:bg-accent/40">
+                    <Td className="font-medium">{f.field}</Td>
+                    <Td right>{fmt(f.compared)}</Td>
+                    <Td right>{fmt(f.matches)}</Td>
+                    <Td right>
+                      <Pill tone={accuracyTone(acc)}>{acc.toFixed(1)}%</Pill>
+                    </Td>
+                  </tr>
+                );
+              })
+            )}
+          </DataTable>
+        </Panel>
+
+        <Panel title="Accuracy by source" description="UI sources present in the join">
+          <DataTable head={["Source", "Compared", "Matches", "Accuracy"]} align={["left", "right", "right", "right"]}>
+            {isPending ? (
+              <TableSkeleton cols={4} rows={5} />
+            ) : (
+              (data?.bySource ?? []).map((s) => (
+                <tr key={s.source} className="hover:bg-accent/40">
+                  <Td className="font-medium">{s.source}</Td>
+                  <Td right>{fmt(s.compared)}</Td>
+                  <Td right>{fmt(s.matches)}</Td>
+                  <Td right>
+                    <Pill tone={accuracyTone(s.accuracy)}>{s.accuracy.toFixed(1)}%</Pill>
+                  </Td>
+                </tr>
+              ))
+            )}
+          </DataTable>
+        </Panel>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 px-6 pt-4 lg:grid-cols-2">
+        <Panel title="Accuracy by method" description="identity_method vs SOT agreement">
+          <DataTable head={["Method", "Family", "Compared", "Matches", "Accuracy"]} align={["left", "left", "right", "right", "right"]}>
+            {isPending ? (
+              <TableSkeleton cols={5} rows={5} />
+            ) : (
+              (data?.byMethod ?? []).map((m) => (
+                <tr key={m.method} className="hover:bg-accent/40">
+                  <Td className="font-medium">{methodLabel(m.method)}</Td>
+                  <Td className="text-muted-foreground">{m.methodFamily}</Td>
+                  <Td right>{fmt(m.compared)}</Td>
+                  <Td right>{fmt(m.matches)}</Td>
+                  <Td right>
+                    <Pill tone={accuracyTone(m.accuracy)}>{m.accuracy.toFixed(1)}%</Pill>
+                  </Td>
+                </tr>
+              ))
+            )}
+          </DataTable>
+        </Panel>
+
+        <Panel title="Waterfall" description="Ordered resolution steps by method family">
+          {isPending ? (
+            <ListSkeleton rows={4} />
+          ) : (data?.waterfall ?? []).length === 0 ? (
+            <EmptyState />
+          ) : (
+            <ul className="divide-y divide-border">
+              {(data?.waterfall ?? []).map((w) => (
+                <li key={w.step} className="px-4 py-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium">
+                      <span className="mr-2 text-muted-foreground">{w.step}.</span>
+                      {w.method}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {fmt(w.matches)} / {fmt(w.records)} · {w.accuracy.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="mt-2">
+                    <Bar value={w.accuracy} tone={w.accuracy >= 90 ? "success" : w.accuracy >= 40 ? "warning" : "destructive"} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
+    </div>
+  );
+}
