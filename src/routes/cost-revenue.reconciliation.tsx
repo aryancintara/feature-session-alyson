@@ -677,6 +677,18 @@ import { type ReconcilePreviewRow } from "@/lib/rulesApi";
 import { ReconciliationReview, type EvidenceMethod, type ReviewEntry } from "@/components/revenue/ReconciliationReview";
 import { reconciliationDifferences, reconciliationReviewStatus, type ReconciliationIntegrity } from "@/lib/reconciliationReview";
 import { DailyAutomaticCheck } from "@/components/revenue/DailyAutomaticCheck";
+import { ReconciliationLogTable } from "@/components/revenue/ReconciliationLogTable";
+import {
+  RECONCILIATION_DONE_KEY,
+  RECONCILIATION_LOG_KEY,
+  lockReconciliationLog,
+  lockedReconciliationIds,
+  migrateDoneKeyToLog,
+  parseReconciliationLog,
+  reconciliationLogId,
+  upsertReconciliationLog,
+  type ReconciliationLogRow,
+} from "@/lib/reconciliationLog";
 
 export const Route = createFileRoute("/cost-revenue/reconciliation")({
   head: () => ({ meta: [
@@ -698,7 +710,6 @@ export interface ReconciliationCheckResult {
   different?: { lead_id: string; source_revenue: number; loaded_revenue: number; session_id?: string | null }[];
   integrity?: ReconciliationIntegrity | null;
 }
-const DONE_KEY = "cost-revenue-reconciliation-done:v1";
 const usd = (value: number) => value.toLocaleString("en-US", { style: "currency", currency: "USD" });
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 const shiftDay = (day: string, offset: number) => {
@@ -804,7 +815,7 @@ function Reconciliation() {
   const [result, setResult] = useState<ReconciliationCheckResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [done, setDone] = useState<Record<string, ReconciliationCheckResult>>({});
+  const [log, setLog] = useState<ReconciliationLogRow[]>([]);
   const [method, setMethod] = useState<EvidenceMethod>("automated");
   const [approved, setApproved] = useState(false);
   const [entries, setEntries] = useState<ReviewEntry[]>([]);
@@ -814,17 +825,32 @@ function Reconciliation() {
     setToday(day);
     setSelected(shiftDay(day, -1));
     try {
-      const saved: unknown = JSON.parse(localStorage.getItem(DONE_KEY) ?? "{}");
-      if (saved && typeof saved === "object" && !Array.isArray(saved)) {
-        setDone(Object.fromEntries(Object.entries(saved).filter(([, value]) => isReconciliationCheckResult(value) && value.matched)));
-      }
-    } catch { /* A missing or invalid reminder does not imply a completed check. */ }
+      const storedLog = parseReconciliationLog(JSON.parse(localStorage.getItem(RECONCILIATION_LOG_KEY) ?? "[]"));
+      const migrated = storedLog.length ? storedLog : migrateDoneKeyToLog(JSON.parse(localStorage.getItem(RECONCILIATION_DONE_KEY) ?? "{}"));
+      setLog(migrated);
+      if (!storedLog.length && migrated.length) localStorage.setItem(RECONCILIATION_LOG_KEY, JSON.stringify(migrated));
+    } catch { /* A missing log does not imply a completed check. */ }
   }, []);
+  const persistLog = (next: ReconciliationLogRow[]) => {
+    setLog(next);
+    try { localStorage.setItem(RECONCILIATION_LOG_KEY, JSON.stringify(next)); } catch { /* Keep the on-screen log if storage is blocked. */ }
+  };
   const period = today ? reconciliationPeriod(kind, selected, today) : null;
   const request = today ? reconciliationCheckRequest(kind, selected, today, source) : null;
-  const key = request ? `${request.source_id}:${request.start}:${request.end}` : "";
-  const remembered = key ? done[key] : undefined;
-  const displayed = remembered ?? result;
+  const key = request ? reconciliationLogId(request.source_id, request.start, request.end) : "";
+  const done = lockedReconciliationIds(log);
+  const remembered = key ? log.find((row) => row.id === key && row.locked && row.result === "matched") : undefined;
+  const rememberedResult: ReconciliationCheckResult | undefined = remembered ? {
+    source_leads: remembered.source_leads ?? 0,
+    source_revenue: remembered.source_revenue ?? 0,
+    loaded_leads: remembered.loaded_leads ?? 0,
+    loaded_revenue: remembered.loaded_revenue ?? 0,
+    difference: remembered.difference ?? 0,
+    matched: true,
+    missing: [],
+    different: [],
+  } : undefined;
+  const displayed = rememberedResult ?? result;
   const reset = () => { setResult(null); setError(""); setApproved(false); setCheckedAt(""); };
   const activity = (action: string, detail: string) => setEntries((previous) => [...previous, { id: previous.length + 1, at: new Date().toISOString(), scope: key, action, detail }]);
   const status = reconciliationReviewStatus({ matched: displayed?.matched, manual: method !== "automated", approved });
@@ -871,12 +897,9 @@ function Reconciliation() {
 
   const checkPeriod = async (revalidationReason?: string) => {
     const body = reconciliationCheckRequest(kind, selected, isoDay(new Date()), source);
-    if (!body || loading || (!revalidationReason && done[`${body.source_id}:${body.start}:${body.end}`])) return;
+    if (!body || loading || (!revalidationReason && done[reconciliationLogId(body.source_id, body.start, body.end)])) return;
     if (revalidationReason && remembered) {
-      try {
-        const updated = { ...done }; delete updated[key];
-        localStorage.setItem(DONE_KEY, JSON.stringify(updated)); setDone(updated);
-      } catch { setError("This browser could not clear its reminder for revalidation."); return; }
+      persistLog(log.map((row) => row.id === key ? { ...row, locked: false } : row));
     }
     setLoading(true); reset();
     if (revalidationReason) activity("Revalidation requested", revalidationReason);
@@ -887,23 +910,55 @@ function Reconciliation() {
       if (!response.ok) throw new Error(`The check could not be completed (${response.status}). Please try again.`);
       const value: unknown = await response.json();
       const parsed = parseReconciliationCheckResponse(value);
-      setResult(parsed); setCheckedAt(new Date().toISOString());
+      const checked = new Date().toISOString();
+      setResult(parsed); setCheckedAt(checked);
+      persistLog(upsertReconciliationLog(log, {
+        id: reconciliationLogId(body.source_id, body.start, body.end),
+        source: body.source_id,
+        period_kind: kind,
+        date_reconciled: body.start,
+        period_start: body.start,
+        period_end: body.end,
+        checked_at: checked,
+        result: reconciliationCheckPassed(parsed) ? "matched" : "difference",
+        source_leads: parsed.source_leads,
+        loaded_leads: parsed.loaded_leads,
+        source_revenue: parsed.source_revenue,
+        loaded_revenue: parsed.loaded_revenue,
+        difference: parsed.difference,
+        how: "reconcile/check",
+        locked: false,
+        cost_usd: null,
+      }));
       activity("Period checked", parsed.matched ? "Aggregate revenue matched; integrity checks remain separate" : `Aggregate mismatch · ${usd(parsed.difference)}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The check could not be completed. Please try again.");
+      persistLog(upsertReconciliationLog(log, {
+        id: reconciliationLogId(body.source_id, body.start, body.end),
+        source: body.source_id,
+        period_kind: kind,
+        date_reconciled: body.start,
+        period_start: body.start,
+        period_end: body.end,
+        checked_at: new Date().toISOString(),
+        result: "failed",
+        source_leads: null,
+        loaded_leads: null,
+        source_revenue: null,
+        loaded_revenue: null,
+        difference: null,
+        how: "reconcile/check",
+        locked: false,
+        cost_usd: null,
+      }));
       activity("Check unavailable", "No comparison totals confirmed");
     } finally { setLoading(false); }
   };
   const markDone = () => {
-    if (!key || !result?.matched || remembered) return;
-    try {
-      const stored: unknown = JSON.parse(localStorage.getItem(DONE_KEY) ?? "{}");
-      const previous = stored && typeof stored === "object" && !Array.isArray(stored) ? Object.fromEntries(Object.entries(stored).filter(([, value]) => isReconciliationCheckResult(value) && value.matched)) : {};
-      const updated = { ...previous, ...done, [key]: result };
-      localStorage.setItem(DONE_KEY, JSON.stringify(updated));
-      setDone(updated); setError("");
-      activity("Browser reminder set", "Mark done · no shared approval or revenue lock");
-    } catch { setError("This browser could not remember the period. It has not been marked done."); }
+    if (!key || !result || !reconciliationCheckPassed(result) || remembered) return;
+    persistLog(lockReconciliationLog(log, key));
+    setError("");
+    activity("Date locked", "This date will not be checked again");
   };
   const yesterday = today ? shiftDay(today, -1) : "";
   const max = kind === "month" && today ? isoDay(new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, 0))).slice(0, 7) : kind === "week" && today ? shiftDay(today, -7) : yesterday;
@@ -916,11 +971,12 @@ function Reconciliation() {
   return (
     <div className="pb-10">
       <PageHeader title="Reconciliation" subtitle="Compare source revenue with loaded revenue for a completed period." actions={<TenantSelect />} />
+      <ReconciliationLogTable rows={log} />
       <DailyAutomaticCheck />
-      <section aria-label="Automated daily check" className="mx-6 mb-6 flex gap-3 rounded-md border border-info/20 bg-info/10 p-3 text-xs leading-relaxed text-muted-foreground">
+      <section aria-label="One-time check" className="mx-6 mb-6 flex gap-3 rounded-md border border-info/20 bg-info/10 p-3 text-xs leading-relaxed text-muted-foreground">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" />
         <p>
-          <span className="font-medium text-foreground">Automated daily check:</span> every day at 9:00 AM IST, Homelight, Non-HL (UCT) and Phonexa are reconciled for the last 30 days. If any difference is found, a detailed report is emailed automatically. Note: daily revenue and cost loading is not automated yet, so new leads and updated revenue may show as differences.
+          <span className="font-medium text-foreground">One-time check:</span> check yesterday’s leads once, and revenue a few days later. After a date is locked in the log, it is never checked again.
         </p>
       </section>
       <div className="space-y-6 px-6">
@@ -970,16 +1026,16 @@ function Reconciliation() {
         <section aria-label="Aggregate differences" className="grid grid-cols-1 gap-4 border-y border-border py-4 sm:grid-cols-3">
           {[{ label: "Absolute revenue difference", value: differences ? usd(differences.absolute) : "—" }, { label: "Revenue difference (%)", value: differences ? differences.percentage === null ? "Not applicable" : `${differences.percentage.toFixed(2)}%` : "—" }, { label: "Lead count difference · source − loaded", value: differences ? differences.leads.toLocaleString("en-US") : "—" }].map((item) => <div key={item.label}><p className="text-xs text-muted-foreground">{item.label}</p><p className="mt-2 font-mono text-lg font-semibold">{item.value}</p></div>)}
         </section>
-        <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground"><span>Provenance: {displayed ? "Existing reconciliation check service · source and loaded totals" : "No result returned"}</span><span>{remembered ? "Legacy browser reminder · not shared verification" : checkedAt ? `Checked ${new Date(checkedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "Not checked"}</span></div>
+        <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground"><span>Provenance: {displayed ? "Existing reconciliation check service · source and loaded totals" : "No result returned"}</span><span>{remembered ? "Locked in the reconciliation log · never check again" : checkedAt ? `Checked ${new Date(checkedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "Not checked"}</span></div>
 
         <section aria-label="Check status" className="border-y border-border py-4" aria-live="polite">
           <div className="flex items-start gap-3">
             {passed ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" /> : <CircleAlert className={`mt-0.5 h-5 w-5 shrink-0 ${displayed ? "text-destructive" : "text-warning"}`} />}
             <div>
               <h2 className={`text-sm font-semibold ${displayed ? passed ? "text-success" : "text-destructive" : ""}`}>{displayed ? passed ? "Matched" : displayed.matched ? "Lead-level differences" : "Not matched" : "Comparison unavailable"}</h2>
-              {displayed ? passed ? <p className="mt-1 text-sm text-muted-foreground">{remembered ? "Done · Browser reminder only. Use targeted revalidation when the scope changes." : displayed.integrity ? "Source and loaded revenue match. See Integrity checks for returned results." : "Source and loaded revenue match. Integrity checks are not yet verified."}</p> : <p className="mt-1 text-sm text-destructive">Difference: <span className="font-mono font-semibold">{usd(displayed.difference)}</span></p> : <p className="mt-1 text-sm text-muted-foreground">{loading ? "Checking source and loaded revenue…" : error ? "Comparison unavailable. No totals were confirmed." : "No comparison has been run for this period."}</p>}
-              {passed && !remembered && <Button className="mt-3" size="sm" onClick={markDone}><CheckCircle2 className="mr-2 h-4 w-4" />Mark done</Button>}
-              {passed && !remembered && <p className="mt-2 text-xs text-muted-foreground">Remembers this period in this browser only. No revenue amount is locked.</p>}
+              {displayed ? passed ? <p className="mt-1 text-sm text-muted-foreground">{remembered ? "This date is locked in the log. It will not be checked again." : displayed.integrity ? "Source and loaded revenue match. See Integrity checks for returned results." : "Source and loaded revenue match. Integrity checks are not yet verified."}</p> : <p className="mt-1 text-sm text-destructive">Difference: <span className="font-mono font-semibold">{usd(displayed.difference)}</span></p> : <p className="mt-1 text-sm text-muted-foreground">{loading ? "Checking source and loaded revenue…" : error ? "Comparison unavailable. No totals were confirmed." : "No comparison has been run for this period."}</p>}
+              {passed && !remembered && <Button className="mt-3" size="sm" onClick={markDone}><CheckCircle2 className="mr-2 h-4 w-4" />Lock date</Button>}
+              {passed && !remembered && <p className="mt-2 text-xs text-muted-foreground">Locks this date in the log. It will not be checked again.</p>}
               {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
             </div>
           </div>
