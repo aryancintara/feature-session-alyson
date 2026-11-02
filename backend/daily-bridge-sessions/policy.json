@@ -1,0 +1,55 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:us-west-2:221490242148:log-group:/aws/lambda/daily-bridge-sessions:*"
+    },
+    {
+      "Sid": "Athena",
+      "Effect": "Allow",
+      "Action": ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:StopQueryExecution"],
+      "Resource": "arn:aws:athena:us-west-2:221490242148:workgroup/ipintel_etl"
+    },
+    {
+      "Sid": "Glue",
+      "Effect": "Allow",
+      "Action": ["glue:GetDatabase", "glue:GetTable", "glue:GetPartitions", "glue:UpdateTable"],
+      "Resource": [
+        "arn:aws:glue:us-west-2:221490242148:catalog",
+        "arn:aws:glue:us-west-2:221490242148:database/unified",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/lead_id_bridge",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/unified_leads",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/unified_session_summary",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/session_click_ids"
+      ]
+    },
+    {
+      "Sid": "S3Tables",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": [
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2/lead_id_bridge_v2/*",
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2/unified_leads_v2/*",
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2/segment-v6/session_summary_final/*",
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2/segment-v6/session_click_ids/*",
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2/cost_revenue/daily-bridge-sessions/*",
+        "arn:aws:s3:::datalake-landingzone-221490242148-us-west-2/ip-intelligence/athena-results/*",
+        "arn:aws:s3:::aws-athena-query-results-221490242148-us-west-2/daily-bridge-sessions/*"
+      ]
+    },
+    {
+      "Sid": "S3List",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+      "Resource": [
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2",
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2",
+        "arn:aws:s3:::datalake-landingzone-221490242148-us-west-2",
+        "arn:aws:s3:::aws-athena-query-results-221490242148-us-west-2"
+      ]
+    }
+  ]
+}

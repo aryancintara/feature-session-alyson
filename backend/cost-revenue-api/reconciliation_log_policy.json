@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GlueReconciliationLog",
+      "Effect": "Allow",
+      "Action": ["glue:GetDatabase", "glue:GetTable", "glue:GetPartitions", "glue:UpdateTable"],
+      "Resource": [
+        "arn:aws:glue:us-west-2:221490242148:catalog",
+        "arn:aws:glue:us-west-2:221490242148:database/unified",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/reconciliation_log",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/revenue_events",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/lead_id_bridge",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/session_click_ids"
+      ]
+    },
+    {
+      "Sid": "S3ReconciliationLog",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": [
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2/reconciliation_log/*",
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2/revenue_events/*",
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2/lead_id_bridge_v2/*",
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2/segment-v6/session_click_ids/*"
+      ]
+    }
+  ]
+}

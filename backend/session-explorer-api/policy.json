@@ -1,0 +1,65 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:us-west-2:221490242148:log-group:/aws/lambda/revai-session-explorer:*"
+    },
+    {
+      "Sid": "AthenaRead",
+      "Effect": "Allow",
+      "Action": ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults", "athena:StopQueryExecution"],
+      "Resource": "arn:aws:athena:us-west-2:221490242148:workgroup/ipintel_etl"
+    },
+    {
+      "Sid": "GlueRead",
+      "Effect": "Allow",
+      "Action": ["glue:GetDatabase", "glue:GetTable", "glue:GetPartitions", "glue:GetTables"],
+      "Resource": [
+        "arn:aws:glue:us-west-2:221490242148:catalog",
+        "arn:aws:glue:us-west-2:221490242148:database/unified",
+        "arn:aws:glue:us-west-2:221490242148:database/raw",
+        "arn:aws:glue:us-west-2:221490242148:database/sampledb",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/unified_session_summary",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/session_click_ids",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/revenue_events",
+        "arn:aws:glue:us-west-2:221490242148:table/unified/lead_id_bridge",
+        "arn:aws:glue:us-west-2:221490242148:table/raw/segment_events",
+        "arn:aws:glue:us-west-2:221490242148:table/raw/ip2locations_data",
+        "arn:aws:glue:us-west-2:221490242148:table/sampledb/revenue_leads_plus"
+      ]
+    },
+    {
+      "Sid": "S3List",
+      "Effect": "Allow",
+      "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2",
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2",
+        "arn:aws:s3:::datalake-landingzone-221490242148-us-west-2"
+      ]
+    },
+    {
+      "Sid": "S3ReadTables",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": [
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2/segment-v6/session_summary_final/*",
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2/segment-v6/session_click_ids/*",
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2/segment-v6/segment_events/*",
+        "arn:aws:s3:::datalake-raw-221490242148-us-west-2/raw.db/ip2locations_data_temp/*",
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2/revenue_events/*",
+        "arn:aws:s3:::datalake-unified-221490242148-us-west-2/lead_id_bridge_v2/*",
+        "arn:aws:s3:::datalake-landingzone-221490242148-us-west-2/iceberg/sampledb.db/revenue_leads_plus/*"
+      ]
+    },
+    {
+      "Sid": "AthenaResults",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"],
+      "Resource": "arn:aws:s3:::datalake-landingzone-221490242148-us-west-2/ip-intelligence/athena-results/*"
+    }
+  ]
+}
