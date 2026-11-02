@@ -92,13 +92,20 @@ export function RuleBuilder({ open, onOpenChange, onSaved, editing }: { open: bo
   const curKey = editing ? `${editing.rule_id}:${editing.rule_version}` : undefined;
   if (key !== curKey) { setKey(curKey); setF(init()); setStep(0); setError(null); }
 
-  const fields = SOURCE_FIELDS[f.source] ?? [];
   const sms = hasCostModifier(f.type, f.source);
   const direct = isDirectCost(f.type, f.source);
   const steps = ruleWizardSteps(f.type, f.source);
   const perSend = smsPerSend(f.amount, f.smsQty);
   const ruleId = editing?.rule_id ?? slugRuleId(f.name);
   const setConds = (conds: Cond[]) => setF({ ...f, conds });
+  const apiSource = apiSourceId(f.source);
+  const colsQ = useQuery({ queryKey: ["cr-rule-columns", apiSource], queryFn: () => listRuleColumns(apiSource), retry: false, enabled: open && COLUMN_SOURCES.includes(apiSource), staleTime: Infinity, refetchOnMount: false, refetchOnWindowFocus: false });
+  const colNames = colsQ.data?.columns.map((c) => c.name) ?? [];
+  const fields = colNames.length ? colNames : (SOURCE_FIELDS[f.source] ?? []);
+  const sourceTable = sms ? SMS_SOURCE_TABLE : colsQ.data?.table || SOURCE_TABLES[f.source];
+  const mappingReady = !!sourceTable;
+  const showVendor = f.type === "REVENUE" && (f.source === "homelight" || f.source === "uct");
+  const showOffer = f.type === "REVENUE" && (f.source === "homelight" || f.source === "uct");
   // Switching Applies to: keep the source only if it is still allowed; otherwise clear source,
   // field, and filters so nothing from the old source leaks into the new type.
   const setType = (t: RuleType) => {
@@ -131,13 +138,7 @@ export function RuleBuilder({ open, onOpenChange, onSaved, editing }: { open: bo
     const t = m.length > 1 ? `${m.slice(0, -1).join(", ")} and ${m[m.length - 1]}` : m[0];
     return t[0].toUpperCase() + t.slice(1);
   })();
-  const filterOpts = useQuery({ queryKey: ["cr-revenue-event-filter-options"], queryFn: listRevenueEventFilterOptions, retry: false, enabled: open && step === 3 && f.type === "REVENUE", staleTime: 5 * 60_000 });
-  const apiSource = apiSourceId(f.source);
-  const colsQ = useQuery({ queryKey: ["cr-rule-columns", apiSource], queryFn: () => listRuleColumns(apiSource), retry: false, enabled: open && f.type === "REVENUE" && COLUMN_SOURCES.includes(apiSource), staleTime: Infinity, refetchOnMount: false, refetchOnWindowFocus: false });
-  const colNames = colsQ.data?.columns.map((c) => c.name) ?? [];
-  const sourceTable = sms ? SMS_SOURCE_TABLE : colsQ.data?.table || SOURCE_TABLES[f.source];
-  const mappingReady = !!sourceTable;
-  const showVendor = f.type === "REVENUE" && f.source !== "phonexa";
+  const filterOpts = useQuery({ queryKey: ["cr-revenue-event-filter-options", apiSource], queryFn: () => listRevenueEventFilterOptions(apiSource), retry: false, enabled: open && step === 3 && (showVendor || showOffer), staleTime: 5 * 60_000 });
   const existing = useQuery({ queryKey: ["cr-rules"], queryFn: listRules, retry: false, enabled: open });
   const nameTaken = !editing && !!f.name.trim() && (existing.data ?? []).some((r) => r.name.trim().toLowerCase() === f.name.trim().toLowerCase() || r.rule_id === ruleId);
   const qtyNum = Number(f.smsQty);
@@ -154,7 +155,7 @@ export function RuleBuilder({ open, onOpenChange, onSaved, editing }: { open: bo
           ...(sms ? [{ field: "connector_id", op: "equals", value: SMS_CONNECTORS[f.source].connector }] : []),
           ...(f.type === "REVENUE" ? f.conds.map(fromCond) : []),
           ...(showVendor && f.vendors.length ? [{ field: "vendor_id", op: "in", value: f.vendors }] : []),
-          ...(f.type === "REVENUE" && f.offers.length ? [{ field: "offer_id", op: "in", value: f.offers }] : []),
+          ...(showOffer && f.offers.length ? [{ field: "offer_id", op: "in", value: f.offers }] : []),
         ],
         calculation: ruleSaveCalculation(f.type, f.source, f.field, f.kind, pct, amt, Number(f.smsQty), editing?.calculation),
         ...ruleSaveDates(f.from, f.to), created_by: "ui",
@@ -295,17 +296,17 @@ export function RuleBuilder({ open, onOpenChange, onSaved, editing }: { open: bo
             ); })}
             <Button type="button" variant="outline" size="sm" disabled={f.conds.length >= MAX_CONDS || !colNames.length} onClick={() => setConds([...f.conds, { field: colNames[0] ?? "", op: "equals", value: "", list: [], hi: "" }])}><Plus className="mr-1 h-4 w-4" /> Add filter</Button>
             {f.conds.length >= MAX_CONDS && <p className="text-xs text-muted-foreground">Up to {MAX_CONDS} filters.</p>}
-            {f.type === "REVENUE" && <div className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
+            {(showVendor || showOffer) && <div className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
               {showVendor && <Field label="Vendor">
-                <MultiPicker value={f.vendors} options={filterOpts.data?.vendors ?? []} loading={filterOpts.isLoading} onChange={(vendors) => setF({ ...f, vendors })} allLabel="All vendors" emptyText="No vendor ids on revenue events yet." />
-                {filterOpts.isSuccess && !filterOpts.data.vendors.length && <span className="font-normal">No vendor ids on revenue events yet.</span>}
+                <MultiPicker value={f.vendors} options={filterOpts.data?.vendors ?? []} loading={filterOpts.isLoading} onChange={(vendors) => setF({ ...f, vendors })} allLabel="All vendors" emptyText="No vendor ids for this source yet." />
+                {filterOpts.isSuccess && !filterOpts.data.vendors.length && <span className="font-normal">No vendor ids for this source yet.</span>}
               </Field>}
-              <Field label="Offer">
-                <MultiPicker value={f.offers} options={filterOpts.data?.offers ?? []} loading={filterOpts.isLoading} onChange={(offers) => setF({ ...f, offers })} allLabel="All offers" emptyText="No offer ids on revenue events yet." />
-                {!filterOpts.isLoading && !(filterOpts.data?.offers.length) && <span className="font-normal">No offer ids on revenue events yet.</span>}
-              </Field>
+              {showOffer && <Field label="Offer">
+                <MultiPicker value={f.offers} options={filterOpts.data?.offers ?? []} loading={filterOpts.isLoading} onChange={(offers) => setF({ ...f, offers })} allLabel="All offers" emptyText="No offer ids for this source yet." />
+                {!filterOpts.isLoading && !(filterOpts.data?.offers.length) && <span className="font-normal">No offer ids for this source yet.</span>}
+              </Field>}
               {filterOpts.isError && <p className="text-xs text-destructive sm:col-span-2">Couldn't load vendor and offer ids: {errMsg(filterOpts.error)}</p>}
-              <p className="text-xs text-muted-foreground sm:col-span-2">Leave empty to match every vendor or offer on revenue events.</p>
+              <p className="text-xs text-muted-foreground sm:col-span-2">Leave empty to match every vendor or offer. You can also add vendor_id or offer_id as a normal filter above.</p>
             </div>}
           </div>
         )}
@@ -317,7 +318,7 @@ export function RuleBuilder({ open, onOpenChange, onSaved, editing }: { open: bo
                 <div key={k} className="flex justify-between gap-3 px-3 py-2"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-medium">{v || "—"}</dd></div>
               ))}
               {f.type === "REVENUE" && <div className="flex justify-between gap-3 px-3 py-2"><dt className="text-muted-foreground">Filters</dt><dd className="text-right font-medium">{f.conds.length ? f.conds.map((c, i) => <div key={i} className="font-mono text-xs">{condLine(fromCond(c))}</div>) : "None"}</dd></div>}
-              {f.type === "REVENUE" && ([...(showVendor ? [["Vendors", f.vendors, "vendors", "All vendors"] as const] : []), ["Offers", f.offers, "offers", "All offers"]] as const).map(([k, ids, kind, all]) => (
+              {f.type === "REVENUE" && ([...(showVendor ? [["Vendors", f.vendors, "vendors", "All vendors"] as const] : []), ...(showOffer ? [["Offers", f.offers, "offers", "All offers"] as const] : [])] as const).map(([k, ids, kind, all]) => (
                 <div key={k} className="flex justify-between gap-3 px-3 py-2"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-medium">{ids.length ? ids.map((id) => { const o = filterOpts.data?.[kind].find((x) => x.id === id); return <div key={id} className="font-mono text-xs">{o ? optionLabel(o) : id}</div>; }) : all}</dd></div>
               ))}
             </dl>

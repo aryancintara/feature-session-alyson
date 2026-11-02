@@ -6,7 +6,7 @@ export type ReconciliationLogResult = "matched" | "difference" | "failed";
 export interface ReconciliationLogRow {
   id: string;
   source: string;
-  period_kind: "day" | "week" | "month";
+  period_kind: "day" | "week" | "month" | "range";
   date_reconciled: string;
   period_start: string;
   period_end: string;
@@ -20,6 +20,8 @@ export interface ReconciliationLogRow {
   how: string;
   locked: boolean;
   cost_usd: number | null;
+  missing_leads: number | null;
+  missing: { lead_id: string; revenue: number; session_id?: string | null; affiliate?: boolean }[];
 }
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -34,7 +36,7 @@ export function isReconciliationLogRow(value: unknown): value is ReconciliationL
   const row = value as Record<string, unknown>;
   return typeof row.id === "string"
     && typeof row.source === "string"
-    && (row.period_kind === "day" || row.period_kind === "week" || row.period_kind === "month")
+    && (row.period_kind === "day" || row.period_kind === "week" || row.period_kind === "month" || row.period_kind === "range")
     && typeof row.date_reconciled === "string" && DAY_RE.test(row.date_reconciled)
     && typeof row.period_start === "string" && DAY_RE.test(row.period_start)
     && typeof row.period_end === "string" && DAY_RE.test(row.period_end)
@@ -47,12 +49,18 @@ export function isReconciliationLogRow(value: unknown): value is ReconciliationL
     && (row.loaded_leads === null || typeof row.loaded_leads === "number")
     && (row.source_revenue === null || typeof row.source_revenue === "number")
     && (row.loaded_revenue === null || typeof row.loaded_revenue === "number")
-    && (row.difference === null || typeof row.difference === "number");
+    && (row.difference === null || typeof row.difference === "number")
+    && (row.missing_leads === undefined || row.missing_leads === null || typeof row.missing_leads === "number")
+    && (row.missing === undefined || (Array.isArray(row.missing) && row.missing.every((item) => item && typeof item === "object" && typeof (item as { lead_id?: unknown }).lead_id === "string")));
 }
 
 export function parseReconciliationLog(value: unknown): ReconciliationLogRow[] {
   if (!Array.isArray(value)) return [];
-  const rows = value.filter(isReconciliationLogRow);
+  const rows = value.filter(isReconciliationLogRow).map((row) => ({
+    ...row,
+    missing_leads: row.missing_leads ?? row.missing?.length ?? null,
+    missing: row.missing ?? [],
+  }));
   const latest = new Map<string, ReconciliationLogRow>();
   for (const row of rows) latest.set(row.id, row);
   return [...latest.values()].sort((a, b) => b.checked_at.localeCompare(a.checked_at) || b.date_reconciled.localeCompare(a.date_reconciled));
@@ -68,6 +76,16 @@ export function lockReconciliationLog(rows: ReconciliationLogRow[], id: string) 
 
 export function lockedReconciliationIds(rows: ReconciliationLogRow[]) {
   return Object.fromEntries(rows.filter((row) => row.locked && row.result === "matched").map((row) => [row.id, true]));
+}
+
+export function coveringReconciliationLog(rows: ReconciliationLogRow[], source: string, start: string, end: string) {
+  return rows.find((row) =>
+    row.source === source
+    && row.locked
+    && row.result === "matched"
+    && row.period_start <= start
+    && row.period_end >= end
+  );
 }
 
 export function migrateDoneKeyToLog(saved: unknown, now = new Date().toISOString()): ReconciliationLogRow[] {
@@ -96,6 +114,8 @@ export function migrateDoneKeyToLog(saved: unknown, now = new Date().toISOString
       how: "Existing check · browser reminder",
       locked: true,
       cost_usd: null,
+      missing_leads: 0,
+      missing: [],
     });
   }
   return parseReconciliationLog(rows);

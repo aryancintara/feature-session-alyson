@@ -23,13 +23,15 @@ describe("Reconciliation past periods", () => {
     expect(() => parseReconciliationCheckResponse({ statusCode: 200, body: "invalid" })).toThrow();
     expect(() => parseReconciliationCheckResponse({ statusCode: 200, body: "{}" })).toThrow("incomplete result");
   });
-  it("allows a past day but rejects today and future days", () => {
-    expect(reconciliationPeriod("day", "2026-10-20", today)).toEqual({ start: "2026-10-20", end: "2026-10-20" });
+  it("allows a day only after a 5-day wait", () => {
+    expect(reconciliationPeriod("day", "2026-10-16", today)).toEqual({ start: "2026-10-16", end: "2026-10-16" });
+    expect(reconciliationPeriod("day", "2026-10-17", today)).toBeNull();
     expect(reconciliationPeriod("day", today, today)).toBeNull();
     expect(reconciliationPeriod("day", "2026-10-22", today)).toBeNull();
   });
-  it("accepts completed weeks only, Monday through Sunday", () => {
-    expect(reconciliationPeriod("week", "2026-10-14", today)).toEqual({ start: "2026-10-12", end: "2026-10-18" });
+  it("accepts a week only after its Sunday is 5 days old", () => {
+    expect(reconciliationPeriod("week", "2026-10-07", today)).toEqual({ start: "2026-10-05", end: "2026-10-11" });
+    expect(reconciliationPeriod("week", "2026-10-14", today)).toBeNull();
     expect(reconciliationPeriod("week", "2026-10-20", today)).toBeNull();
     expect(reconciliationPeriod("week", "2026-10-26", today)).toBeNull();
   });
@@ -46,10 +48,10 @@ describe("Reconciliation past periods", () => {
     expect(reconciliationCheckRequest("month", "2026-09", today, "homelight")).toEqual({ source_id: "homelight", start: "2026-09-01", end: "2026-10-01" });
   });
   it("sends non-HomeLight as uct with an exclusive day end", () => {
-    expect(reconciliationCheckRequest("day", "2026-10-20", today, "uct")).toEqual({ source_id: "uct", start: "2026-10-20", end: "2026-10-21" });
+    expect(reconciliationCheckRequest("day", "2026-10-16", today, "uct")).toEqual({ source_id: "uct", start: "2026-10-16", end: "2026-10-17" });
   });
   it("sends the Monday after a completed week as end", () => {
-    expect(reconciliationCheckRequest("week", "2026-10-14", today, "homelight")).toEqual({ source_id: "homelight", start: "2026-10-12", end: "2026-10-19" });
+    expect(reconciliationCheckRequest("week", "2026-10-07", today, "homelight")).toEqual({ source_id: "homelight", start: "2026-10-05", end: "2026-10-12" });
   });
   it("does not construct a request for today", () => {
     expect(reconciliationCheckRequest("day", today, today, "homelight")).toBeNull();
@@ -68,10 +70,9 @@ describe("Third-party (uct) reconciliation", () => {
   it("sends source_id uct with exclusive UTC end", () => {
     expect(uctRequest("week", "2026-10-14", "2026-10-23", "uct")).toEqual({ source_id: "uct", start: "2026-10-12", end: "2026-10-19" });
   });
-  it("passes only when matched with no missing or different leads", () => {
+  it("passes when no source leads are missing from revenue_events", () => {
     expect(reconciliationCheckPassed(base)).toBe(true);
-    expect(reconciliationCheckPassed({ ...base, different: [{ lead_id: "c1", source_revenue: 10, loaded_revenue: 9 }] })).toBe(false);
+    expect(reconciliationCheckPassed({ ...base, different: [{ lead_id: "c1", source_revenue: 10, loaded_revenue: 9 }] })).toBe(true);
     expect(reconciliationCheckPassed({ ...base, missing: [{ lead_id: "c2", revenue: 5 }] })).toBe(false);
-    expect(reconciliationCheckPassed({ ...base, matched: false })).toBe(false);
   });
 });

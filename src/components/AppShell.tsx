@@ -128,11 +128,12 @@ const NAV: NavItem[] = [
   },
   {
     label: "Cost & Revenue",
-    to: "/cost-revenue/overview",
+    to: "/cost-revenue/rules",
     icon: Database,
     group: "Unified Data",
     children: [
-      { label: "Overview", to: "/cost-revenue/overview" },
+      // Hidden at the user's request — Overview is not needed in the nav.
+      // { label: "Overview", to: "/cost-revenue/overview" },
       // Hidden at the user's request — the Events tab is not needed in the nav.
       // The route file (src/routes/cost-revenue.events.tsx) is untouched, so this line can be restored.
       // { label: "Events", to: "/cost-revenue/events" },
@@ -196,7 +197,7 @@ export function AppShell() {
                 const active = routeActive(item.to) || isChildActive;
                 const Icon = item.icon;
                 const hasChildren = !!item.children?.length;
-                const groupOpen = hasChildren && (Boolean(openItems[item.to]) || (item.to === "/cost-revenue/overview" && onCostRevenue));
+                const groupOpen = hasChildren && (Boolean(openItems[item.to]) || (item.to === "/cost-revenue/rules" && onCostRevenue));
                 return (
                   <div key={item.to}>
                     <Link

@@ -667,23 +667,17 @@
 
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { CalendarDays, CircleAlert, ArrowRight, Search, CheckCircle2, Loader2, Info } from "lucide-react";
+import { CalendarDays, CircleAlert, Search, CheckCircle2, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/ui-bits";
 import { TenantSelect } from "@/components/revenue/RevenueBits";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { type ReconcilePreviewRow } from "@/lib/rulesApi";
-import { ReconciliationReview, type EvidenceMethod, type ReviewEntry } from "@/components/revenue/ReconciliationReview";
-import { reconciliationDifferences, reconciliationReviewStatus, type ReconciliationIntegrity } from "@/lib/reconciliationReview";
-import { DailyAutomaticCheck } from "@/components/revenue/DailyAutomaticCheck";
+import { listReconciliationLog, postReconcileCheck, postReconcileLoadMissing, type ReconcilePreviewRow } from "@/lib/rulesApi";
+import { reconciliationDifferences, type ReconciliationIntegrity } from "@/lib/reconciliationReview";
 import { ReconciliationLogTable } from "@/components/revenue/ReconciliationLogTable";
 import {
-  RECONCILIATION_DONE_KEY,
-  RECONCILIATION_LOG_KEY,
-  lockReconciliationLog,
-  lockedReconciliationIds,
-  migrateDoneKeyToLog,
+  coveringReconciliationLog,
   parseReconciliationLog,
   reconciliationLogId,
   upsertReconciliationLog,
@@ -706,7 +700,7 @@ export type CheckPeriod = "day" | "week" | "month";
 type CheckSource = "homelight" | "uct" | "phonexa";
 export interface ReconciliationCheckResult {
   source_leads: number; source_revenue: number; loaded_leads: number; loaded_revenue: number;
-  difference: number; matched: boolean; missing: { lead_id: string; revenue: number; session_id?: string | null }[];
+  difference: number; matched: boolean; missing: { lead_id: string; revenue: number; session_id?: string | null; affiliate?: boolean }[];
   different?: { lead_id: string; source_revenue: number; loaded_revenue: number; session_id?: string | null }[];
   integrity?: ReconciliationIntegrity | null;
 }
@@ -718,7 +712,10 @@ const shiftDay = (day: string, offset: number) => {
   return isoDay(date);
 };
 
+export const RECONCILE_WAIT_DAYS = 5;
+
 // Calendar periods are inclusive UTC dates; weeks run Monday through Sunday.
+// A date is checkable only after RECONCILE_WAIT_DAYS, so late source revenue can land.
 export function reconciliationPeriod(kind: CheckPeriod, selected: string, today: string): { start: string; end: string } | null {
   const input = kind === "month" ? `${selected}-01` : selected;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input)) return null;
@@ -732,7 +729,7 @@ export function reconciliationPeriod(kind: CheckPeriod, selected: string, today:
   } else if (kind === "month") {
     end = isoDay(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)));
   }
-  return end < today ? { start, end } : null;
+  return end <= shiftDay(today, -RECONCILE_WAIT_DAYS) ? { start, end } : null;
 }
 
 export function reconciliationCheckRequest(kind: CheckPeriod, selected: string, today: string, source_id: CheckSource) {
@@ -752,9 +749,9 @@ export function isReconciliationCheckResult(value: unknown): value is Reconcilia
     });
 }
 
-// A check passes only when totals match and no missing or amount-mismatched leads are returned.
+// A check passes when every source lead is in revenue_events. Amount diffs are shown, not blocking.
 export function reconciliationCheckPassed(result?: ReconciliationCheckResult | null) {
-  return !!result && result.matched && result.missing.length === 0 && (result.different?.length ?? 0) === 0;
+  return !!result && result.missing.length === 0;
 }
 
 export function parseReconciliationCheckResponse(value: unknown): ReconciliationCheckResult {
@@ -816,46 +813,39 @@ function Reconciliation() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [log, setLog] = useState<ReconciliationLogRow[]>([]);
-  const [method, setMethod] = useState<EvidenceMethod>("automated");
-  const [approved, setApproved] = useState(false);
-  const [entries, setEntries] = useState<ReviewEntry[]>([]);
   const [checkedAt, setCheckedAt] = useState("");
+  const [loadingMissing, setLoadingMissing] = useState(false);
   useEffect(() => {
     const day = isoDay(new Date());
     setToday(day);
-    setSelected(shiftDay(day, -1));
-    try {
-      const storedLog = parseReconciliationLog(JSON.parse(localStorage.getItem(RECONCILIATION_LOG_KEY) ?? "[]"));
-      const migrated = storedLog.length ? storedLog : migrateDoneKeyToLog(JSON.parse(localStorage.getItem(RECONCILIATION_DONE_KEY) ?? "{}"));
-      setLog(migrated);
-      if (!storedLog.length && migrated.length) localStorage.setItem(RECONCILIATION_LOG_KEY, JSON.stringify(migrated));
-    } catch { /* A missing log does not imply a completed check. */ }
+    setSelected(shiftDay(day, -RECONCILE_WAIT_DAYS));
+    void listReconciliationLog()
+      .then((data) => setLog(parseReconciliationLog(data.rows ?? [])))
+      .catch(() => { /* Keep an empty log until Check can write one. */ });
   }, []);
   const persistLog = (next: ReconciliationLogRow[]) => {
     setLog(next);
-    try { localStorage.setItem(RECONCILIATION_LOG_KEY, JSON.stringify(next)); } catch { /* Keep the on-screen log if storage is blocked. */ }
   };
   const period = today ? reconciliationPeriod(kind, selected, today) : null;
   const request = today ? reconciliationCheckRequest(kind, selected, today, source) : null;
   const key = request ? reconciliationLogId(request.source_id, request.start, request.end) : "";
-  const done = lockedReconciliationIds(log);
-  const remembered = key ? log.find((row) => row.id === key && row.locked && row.result === "matched") : undefined;
-  const rememberedResult: ReconciliationCheckResult | undefined = remembered ? {
+  const remembered = request ? coveringReconciliationLog(log, request.source_id, request.start, request.end) : undefined;
+  const historical = !!remembered && (remembered.period_kind === "range" || remembered.how.startsWith("historical load"));
+  const nextCheckDay = remembered?.date_reconciled ? shiftDay(remembered.date_reconciled, 1) : "";
+  const rememberedResult: ReconciliationCheckResult | undefined = remembered && !historical ? {
     source_leads: remembered.source_leads ?? 0,
     source_revenue: remembered.source_revenue ?? 0,
     loaded_leads: remembered.loaded_leads ?? 0,
     loaded_revenue: remembered.loaded_revenue ?? 0,
     difference: remembered.difference ?? 0,
     matched: true,
-    missing: [],
+    missing: remembered.missing ?? [],
     different: [],
   } : undefined;
   const displayed = rememberedResult ?? result;
-  const reset = () => { setResult(null); setError(""); setApproved(false); setCheckedAt(""); };
-  const activity = (action: string, detail: string) => setEntries((previous) => [...previous, { id: previous.length + 1, at: new Date().toISOString(), scope: key, action, detail }]);
-  const status = reconciliationReviewStatus({ matched: displayed?.matched, manual: method !== "automated", approved });
+  const reset = () => { setResult(null); setError(""); setCheckedAt(""); };
   const differences = displayed ? reconciliationDifferences(displayed) : null;
-  const passed = reconciliationCheckPassed(displayed);
+  const passed = !!remembered || reconciliationCheckPassed(displayed);
 
   // Previous reconciliation check, kept so this version can be restored.
   // const checkPeriod = () => setAttempted(true);
@@ -897,18 +887,13 @@ function Reconciliation() {
 
   const checkPeriod = async (revalidationReason?: string) => {
     const body = reconciliationCheckRequest(kind, selected, isoDay(new Date()), source);
-    if (!body || loading || (!revalidationReason && done[reconciliationLogId(body.source_id, body.start, body.end)])) return;
+    if (!body || loading || (!revalidationReason && coveringReconciliationLog(log, body.source_id, body.start, body.end))) return;
     if (revalidationReason && remembered) {
       persistLog(log.map((row) => row.id === key ? { ...row, locked: false } : row));
     }
     setLoading(true); reset();
-    if (revalidationReason) activity("Revalidation requested", revalidationReason);
     try {
-      const response = await fetch("https://i4mf0v33aa.execute-api.us-west-2.amazonaws.com/reconcile/check", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-      });
-      if (!response.ok) throw new Error(`The check could not be completed (${response.status}). Please try again.`);
-      const value: unknown = await response.json();
+      const value = await postReconcileCheck({ ...body, period_kind: kind });
       const parsed = parseReconciliationCheckResponse(value);
       const checked = new Date().toISOString();
       setResult(parsed); setCheckedAt(checked);
@@ -927,12 +912,16 @@ function Reconciliation() {
         loaded_revenue: parsed.loaded_revenue,
         difference: parsed.difference,
         how: "reconcile/check",
-        locked: false,
+        locked: reconciliationCheckPassed(parsed),
         cost_usd: null,
+        missing_leads: parsed.missing.length,
+        missing: parsed.missing,
       }));
-      activity("Period checked", parsed.matched ? "Aggregate revenue matched; integrity checks remain separate" : `Aggregate mismatch · ${usd(parsed.difference)}`);
+      void listReconciliationLog().then((data) => persistLog(parseReconciliationLog(data.rows ?? []))).catch(() => undefined);
     } catch (cause) {
+      const checked = new Date().toISOString();
       setError(cause instanceof Error ? cause.message : "The check could not be completed. Please try again.");
+      setCheckedAt(checked);
       persistLog(upsertReconciliationLog(log, {
         id: reconciliationLogId(body.source_id, body.start, body.end),
         source: body.source_id,
@@ -940,7 +929,7 @@ function Reconciliation() {
         date_reconciled: body.start,
         period_start: body.start,
         period_end: body.end,
-        checked_at: new Date().toISOString(),
+        checked_at: checked,
         result: "failed",
         source_leads: null,
         loaded_leads: null,
@@ -950,121 +939,156 @@ function Reconciliation() {
         how: "reconcile/check",
         locked: false,
         cost_usd: null,
+        missing_leads: null,
+        missing: [],
       }));
-      activity("Check unavailable", "No comparison totals confirmed");
     } finally { setLoading(false); }
   };
-  const markDone = () => {
-    if (!key || !result || !reconciliationCheckPassed(result) || remembered) return;
-    persistLog(lockReconciliationLog(log, key));
-    setError("");
-    activity("Date locked", "This date will not be checked again");
+  const loadMissingLeads = async () => {
+    const body = reconciliationCheckRequest(kind, selected, isoDay(new Date()), source);
+    if (!body || loading || loadingMissing || !displayed?.missing.length) return;
+    setLoadingMissing(true); setError("");
+    try {
+      await postReconcileLoadMissing({
+        ...body,
+        period_kind: kind,
+        lead_ids: displayed.missing.map((lead) => lead.lead_id).filter(Boolean),
+      });
+      await checkPeriod("loaded missing leads");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The missing leads could not be loaded. Please try again.");
+    } finally { setLoadingMissing(false); }
   };
-  const yesterday = today ? shiftDay(today, -1) : "";
-  const max = kind === "month" && today ? isoDay(new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, 0))).slice(0, 7) : kind === "week" && today ? shiftDay(today, -7) : yesterday;
+  const readyDay = today ? shiftDay(today, -RECONCILE_WAIT_DAYS) : "";
+  const max = kind === "month" && today ? maxReadyMonth(today) : kind === "week" && today ? maxReadyWeekDay(today) : readyDay;
   const changeKind = (next: string) => {
     if (next !== "day" && next !== "week" && next !== "month") return;
     setKind(next);
     reset();
-    setSelected(next === "month" ? maxPreviousMonth(today) : next === "week" && today ? shiftDay(today, -7) : yesterday);
+    setSelected(next === "month" ? maxReadyMonth(today) : next === "week" && today ? maxReadyWeekDay(today) : readyDay);
   };
+  const sourceLabel = source === "homelight" ? "HomeLight" : source === "phonexa" ? "Phonexa" : "UCT";
   return (
-    <div className="pb-10">
-      <PageHeader title="Reconciliation" subtitle="Compare source revenue with loaded revenue for a completed period." actions={<TenantSelect />} />
-      <ReconciliationLogTable rows={log} />
-      <DailyAutomaticCheck />
-      <section aria-label="One-time check" className="mx-6 mb-6 flex gap-3 rounded-md border border-info/20 bg-info/10 p-3 text-xs leading-relaxed text-muted-foreground">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" />
-        <p>
-          <span className="font-medium text-foreground">One-time check:</span> check yesterday’s leads once, and revenue a few days later. After a date is locked in the log, it is never checked again.
-        </p>
-      </section>
-      <div className="space-y-6 px-6">
-        <section aria-label="Check period" className="border-b border-border pb-5">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[140px_minmax(180px,1fr)_minmax(180px,1fr)_auto] lg:items-end">
-            <div className="space-y-2">
-              <label id="period-label" className="text-xs font-medium text-muted-foreground">Period</label>
-              <Select value={kind} onValueChange={changeKind} disabled={loading}>
-                <SelectTrigger aria-labelledby="period-label"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="day">Day</SelectItem><SelectItem value="week">Week</SelectItem><SelectItem value="month">Month</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="check-date" className="text-xs font-medium text-muted-foreground">{kind === "week" ? "Week containing" : kind === "month" ? "Month" : "Day"}</label>
-              <Input id="check-date" type={kind === "month" ? "month" : "date"} value={selected} max={max} disabled={!today || loading} onChange={(event) => { setSelected(event.target.value); reset(); }} aria-invalid={!!selected && !period} />
-            </div>
-            <div className="space-y-2">
-              <label id="source-label" className="text-xs font-medium text-muted-foreground">Source</label>
-              <Select value={source} disabled={loading} onValueChange={(value) => { if (value === "homelight" || value === "uct" || value === "phonexa") { setSource(value); reset(); } }}>
-                <SelectTrigger aria-labelledby="source-label"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="homelight">Homelight</SelectItem><SelectItem value="phonexa">Phonexa</SelectItem><SelectItem value="uct">Third-party revenue (UCT)</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <Button disabled={!period || loading || !!remembered} onClick={() => void checkPeriod()}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Search className="mr-2 h-4 w-4" />}{loading ? "Checking…" : "Check period"}</Button>
-          </div>
-          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-4 w-4 shrink-0" />
-            <span>{period ? `${period.start} – ${period.end} · UTC` : "Select a completed past period."}{kind === "week" ? " · Monday–Sunday" : ""}</span>
-          </div>
-          {selected && !period && today && <p role="alert" className="mt-2 text-xs text-destructive">Choose a valid period that ends before today. Today and unfinished weeks or months cannot be checked.</p>}
-        </section>
+    <div className="space-y-6 px-6 pb-10">
+      <PageHeader className="px-0" title="Reconciliation" subtitle="Wait 5 days, then Check that date for missing leads." />
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">Aggregate comparison</h2>
-          <span className={`inline-flex items-center gap-2 text-xs font-medium ${status === "Failed" ? "text-destructive" : status === "Warning" || status === "Awaiting Evidence" ? "text-warning" : "text-muted-foreground"}`}><CircleAlert className="h-4 w-4" />{loading ? "Checking…" : status}</span>
+      <section className="rounded-xl border border-border bg-card p-5" aria-label="Check a date">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Check a date</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Check a date only after 5 days. That wait lets late source revenue land.</p>
+          </div>
+          <TenantSelect />
         </div>
-        <section aria-label="Revenue totals" className="grid gap-4 sm:grid-cols-2">
-          {[{ label: "Source", detail: source === "homelight" ? "Homelight · expected revenue" : source === "phonexa" ? "Phonexa · expected vendor revenue" : "Third-party (UCT) · expected vendor revenue", revenue: displayed?.source_revenue, leads: displayed?.source_leads }, { label: "Loaded", detail: "Revenue loaded for the same source and period", revenue: displayed?.loaded_revenue, leads: displayed?.loaded_leads }].map((item) => (
-            <div key={item.label} className="min-w-0 rounded-lg border border-border bg-card p-5">
-              <h2 className="text-sm font-semibold">{item.label}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
-              <p className="mt-5 font-mono text-3xl font-semibold tabular-nums">{item.revenue === undefined ? "—" : usd(item.revenue)}</p>
-              <p className="mt-2 text-xs text-muted-foreground">Lead count: {item.leads === undefined ? "—" : item.leads.toLocaleString("en-US")}</p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-[140px_minmax(180px,1fr)_minmax(200px,1fr)_auto] lg:items-end">
+          <div className="space-y-2">
+            <label id="period-label" className="text-xs font-medium text-muted-foreground">Period</label>
+            <Select value={kind} onValueChange={changeKind} disabled={loading}>
+              <SelectTrigger aria-labelledby="period-label"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="day">Day</SelectItem><SelectItem value="week">Week</SelectItem><SelectItem value="month">Month</SelectItem></SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="check-date" className="text-xs font-medium text-muted-foreground">{kind === "week" ? "Week containing" : kind === "month" ? "Month" : "Day"}</label>
+            <Input id="check-date" type={kind === "month" ? "month" : "date"} value={selected} max={max} disabled={!today || loading} onChange={(event) => { setSelected(event.target.value); reset(); }} aria-invalid={!!selected && !period} />
+          </div>
+          <div className="space-y-2">
+            <label id="source-label" className="text-xs font-medium text-muted-foreground">Source</label>
+            <Select value={source} disabled={loading} onValueChange={(value) => { if (value === "homelight" || value === "uct" || value === "phonexa") { setSource(value); reset(); } }}>
+              <SelectTrigger aria-labelledby="source-label"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="homelight">HomeLight</SelectItem><SelectItem value="phonexa">Phonexa</SelectItem><SelectItem value="uct">UCT</SelectItem></SelectContent>
+            </Select>
+          </div>
+          <Button disabled={!period || loading || !!remembered} onClick={() => void checkPeriod()}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Search className="mr-2 h-4 w-4" />}{loading ? "Checking…" : remembered ? "Locked" : "Check"}</Button>
+        </div>
+        <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-4 w-4 shrink-0" />{period ? `${period.start} – ${period.end}` : "Pick a date that ended at least 5 days ago."}{kind === "week" ? " · Monday–Sunday" : ""}</p>
+        {selected && !period && today && <p role="alert" className="mt-2 text-xs text-destructive">Choose a date that ended at least 5 days ago.</p>}
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-5" aria-label="Result" aria-live="polite">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold">Result</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{historical && remembered ? `All leads through ${remembered.date_reconciled} are OK. Check starts ${nextCheckDay}.` : remembered ? "No missing leads. This date will not be checked again." : checkedAt ? `Checked ${new Date(checkedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "No check yet."}</p>
+          </div>
+          <span className={`inline-flex items-center gap-2 text-xs font-medium ${passed ? "text-success" : displayed || error ? "text-destructive" : "text-muted-foreground"}`}>
+            {passed ? <CheckCircle2 className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}
+            {loading ? "Checking…" : remembered || passed ? "All leads loaded" : displayed ? "Missing leads" : error ? "Failed" : "Not checked"}
+          </span>
+        </div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          {[{ label: "Source", detail: sourceLabel, revenue: displayed?.source_revenue, leads: displayed?.source_leads }, { label: "Loaded", detail: "revenue_events", revenue: displayed?.loaded_revenue, leads: displayed?.loaded_leads }].map((item) => (
+            <div key={item.label} className="rounded-lg border border-border bg-background p-4">
+              <p className="text-xs text-muted-foreground">{item.label} · {item.detail}</p>
+              <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">{item.revenue === undefined ? "—" : usd(item.revenue)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{item.leads === undefined ? "—" : `${item.leads.toLocaleString("en-US")} leads`}</p>
             </div>
           ))}
-        </section>
+        </div>
+        <div className="mt-4 grid gap-4 border-t border-border pt-4 sm:grid-cols-3">
+          {[{ label: "Difference", value: differences ? usd(differences.absolute) : "—" }, { label: "Difference %", value: differences ? differences.percentage === null ? "—" : `${differences.percentage.toFixed(2)}%` : "—" }, { label: "Lead gap", value: differences ? differences.leads.toLocaleString("en-US") : "—" }].map((item) => (
+            <div key={item.label}><p className="text-xs text-muted-foreground">{item.label}</p><p className="mt-1 font-mono text-base font-semibold">{item.value}</p></div>
+          ))}
+        </div>
+        {error && <p role="alert" className="mt-4 text-sm text-destructive">{error}</p>}
+      </section>
 
-        <section aria-label="Aggregate differences" className="grid grid-cols-1 gap-4 border-y border-border py-4 sm:grid-cols-3">
-          {[{ label: "Absolute revenue difference", value: differences ? usd(differences.absolute) : "—" }, { label: "Revenue difference (%)", value: differences ? differences.percentage === null ? "Not applicable" : `${differences.percentage.toFixed(2)}%` : "—" }, { label: "Lead count difference · source − loaded", value: differences ? differences.leads.toLocaleString("en-US") : "—" }].map((item) => <div key={item.label}><p className="text-xs text-muted-foreground">{item.label}</p><p className="mt-2 font-mono text-lg font-semibold">{item.value}</p></div>)}
-        </section>
-        <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground"><span>Provenance: {displayed ? "Existing reconciliation check service · source and loaded totals" : "No result returned"}</span><span>{remembered ? "Locked in the reconciliation log · never check again" : checkedAt ? `Checked ${new Date(checkedAt).toLocaleString("en-US", { timeZone: "UTC" })} UTC` : "Not checked"}</span></div>
-
-        <section aria-label="Check status" className="border-y border-border py-4" aria-live="polite">
-          <div className="flex items-start gap-3">
-            {passed ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" /> : <CircleAlert className={`mt-0.5 h-5 w-5 shrink-0 ${displayed ? "text-destructive" : "text-warning"}`} />}
-            <div>
-              <h2 className={`text-sm font-semibold ${displayed ? passed ? "text-success" : "text-destructive" : ""}`}>{displayed ? passed ? "Matched" : displayed.matched ? "Lead-level differences" : "Not matched" : "Comparison unavailable"}</h2>
-              {displayed ? passed ? <p className="mt-1 text-sm text-muted-foreground">{remembered ? "This date is locked in the log. It will not be checked again." : displayed.integrity ? "Source and loaded revenue match. See Integrity checks for returned results." : "Source and loaded revenue match. Integrity checks are not yet verified."}</p> : <p className="mt-1 text-sm text-destructive">Difference: <span className="font-mono font-semibold">{usd(displayed.difference)}</span></p> : <p className="mt-1 text-sm text-muted-foreground">{loading ? "Checking source and loaded revenue…" : error ? "Comparison unavailable. No totals were confirmed." : "No comparison has been run for this period."}</p>}
-              {passed && !remembered && <Button className="mt-3" size="sm" onClick={markDone}><CheckCircle2 className="mr-2 h-4 w-4" />Lock date</Button>}
-              {passed && !remembered && <p className="mt-2 text-xs text-muted-foreground">Locks this date in the log. It will not be checked again.</p>}
-              {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
+      {displayed && (!passed || (displayed.different?.length ?? 0) > 0) && (
+        <section className="grid gap-6 lg:grid-cols-2" aria-label="Issues">
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">Missing leads</h2>
+                <p className="mt-1 text-xs text-muted-foreground">Next: load them into revenue_events, then Check again.</p>
+              </div>
+              {!!displayed.missing.length && (
+                <Button size="sm" disabled={loading || loadingMissing || !!remembered} onClick={() => void loadMissingLeads()}>
+                  {loadingMissing ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : null}
+                  {loadingMissing ? "Loading…" : "Load missing leads"}
+                </Button>
+              )}
+            </div>
+            <div className="mt-3 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-left text-sm"><thead className="bg-muted/40 text-xs text-muted-foreground"><tr><th scope="col" className="px-4 py-3 font-medium">Lead id</th><th scope="col" className="px-4 py-3 font-medium">Session</th><th scope="col" className="px-4 py-3 font-medium">Affiliate flag</th><th scope="col" className="px-4 py-3 text-right font-medium">Revenue</th></tr></thead>
+                <tbody>{displayed.missing.length ? displayed.missing.map((lead, index) => <tr key={`${lead.lead_id}:${index}`} className="border-t border-border"><td className="px-4 py-3 font-mono break-all">{lead.lead_id || "—"}</td><td className="px-4 py-3 font-mono break-all">{lead.session_id || "—"}</td><td className="px-4 py-3">{lead.affiliate == null ? "—" : lead.affiliate ? "OK" : "Not"}</td><td className="px-4 py-3 text-right font-mono tabular-nums">{usd(lead.revenue)}</td></tr>) : <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">None</td></tr>}</tbody>
+              </table>
+            </div>
+          </div>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h2 className="text-sm font-semibold">Amount mismatches</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Loaded with a different amount</p>
+            <div className="mt-3 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-left text-sm"><thead className="bg-muted/40 text-xs text-muted-foreground"><tr><th scope="col" className="px-4 py-3 font-medium">Lead id</th><th scope="col" className="px-4 py-3 text-right font-medium">Source</th><th scope="col" className="px-4 py-3 text-right font-medium">Loaded</th></tr></thead>
+                <tbody>{displayed.different?.length ? displayed.different.map((lead, index) => <tr key={`${lead.lead_id}:${index}`} className="border-t border-border"><td className="px-4 py-3 font-mono break-all">{lead.lead_id || "—"}</td><td className="px-4 py-3 text-right font-mono tabular-nums">{usd(lead.source_revenue)}</td><td className="px-4 py-3 text-right font-mono tabular-nums">{usd(lead.loaded_revenue)}</td></tr>) : <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">None</td></tr>}</tbody>
+              </table>
             </div>
           </div>
         </section>
+      )}
 
-        <ReconciliationReview scope={key} source={source === "homelight" ? "Homelight" : source === "phonexa" ? "Phonexa" : "Third-party (UCT)"} start={period?.start ?? ""} end={period?.end ?? ""} method={method} onMethod={setMethod} approved={approved} onApprove={setApproved} checked={!!displayed} integrity={displayed?.integrity} entries={entries} onActivity={activity} onRevalidate={(reason) => void checkPeriod(reason)} loading={loading} />
-        {!passed && <section aria-label="Missing leads">
-          <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-semibold">Missing leads</h2><ArrowRight className="h-4 w-4 text-muted-foreground" /><span className="text-xs text-muted-foreground">In source, not loaded</span></div>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-left text-sm"><thead className="bg-muted/40 text-xs text-muted-foreground"><tr><th scope="col" className="px-4 py-3 font-medium">Lead id</th><th scope="col" className="px-4 py-3 font-medium">Session id</th><th scope="col" className="px-4 py-3 text-right font-medium">Revenue</th></tr></thead>
-              <tbody>{displayed?.missing.length ? displayed.missing.map((lead, index) => <tr key={`${lead.lead_id}:${index}`} className="border-t border-border"><td className="px-4 py-3 font-mono break-all">{lead.lead_id || "—"}</td><td className="px-4 py-3 font-mono break-all">{lead.session_id || "—"}</td><td className="px-4 py-3 text-right font-mono tabular-nums">{usd(lead.revenue)}</td></tr>) : <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-muted-foreground">{displayed ? "No missing leads were returned for this period." : "Missing leads are unavailable until the check returns."}</td></tr>}</tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">Leads with our_session = no or no utm_content are intentionally excluded from missing-lead errors.</p>
-        </section>}
-        {!passed && <section aria-label="Amount mismatches">
-          <div className="mb-3 flex items-center gap-2"><h2 className="text-sm font-semibold">Amount mismatches</h2><ArrowRight className="h-4 w-4 text-muted-foreground" /><span className="text-xs text-muted-foreground">Loaded with a different amount</span></div>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-left text-sm"><thead className="bg-muted/40 text-xs text-muted-foreground"><tr><th scope="col" className="px-4 py-3 font-medium">Lead id</th><th scope="col" className="px-4 py-3 font-medium">Session id</th><th scope="col" className="px-4 py-3 text-right font-medium">Source</th><th scope="col" className="px-4 py-3 text-right font-medium">Loaded</th></tr></thead>
-              <tbody>{displayed?.different?.length ? displayed.different.map((lead, index) => <tr key={`${lead.lead_id}:${index}`} className="border-t border-border"><td className="px-4 py-3 font-mono break-all">{lead.lead_id || "—"}</td><td className="px-4 py-3 font-mono break-all">{lead.session_id || "—"}</td><td className="px-4 py-3 text-right font-mono tabular-nums">{usd(lead.source_revenue)}</td><td className="px-4 py-3 text-right font-mono tabular-nums">{usd(lead.loaded_revenue)}</td></tr>) : <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-muted-foreground">{displayed ? "No amount mismatches were returned for this period." : "Amount mismatches are unavailable until the check returns."}</td></tr>}</tbody>
-            </table>
-          </div>
-        </section>}
-      </div>
+      <section className="rounded-xl border border-border bg-card p-5">
+        <ReconciliationLogTable rows={log} />
+      </section>
     </div>
   );
 }
 
-function maxPreviousMonth(today: string): string {
+function maxReadyMonth(today: string): string {
   if (!today) return "";
-  return isoDay(new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, 0))).slice(0, 7);
+  const ready = shiftDay(today, -RECONCILE_WAIT_DAYS);
+  const readyDate = new Date(`${ready}T00:00:00Z`);
+  const monthEnd = isoDay(new Date(Date.UTC(readyDate.getUTCFullYear(), readyDate.getUTCMonth() + 1, 0)));
+  if (monthEnd > ready) {
+    return isoDay(new Date(Date.UTC(readyDate.getUTCFullYear(), readyDate.getUTCMonth(), 0))).slice(0, 7);
+  }
+  return ready.slice(0, 7);
+}
+
+function maxReadyWeekDay(today: string): string {
+  if (!today) return "";
+  const ready = shiftDay(today, -RECONCILE_WAIT_DAYS);
+  const readyDate = new Date(`${ready}T00:00:00Z`);
+  const monday = shiftDay(ready, -((readyDate.getUTCDay() + 6) % 7));
+  const sunday = shiftDay(monday, 6);
+  return sunday <= ready ? ready : shiftDay(monday, -1);
 }
