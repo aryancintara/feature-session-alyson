@@ -2,6 +2,8 @@
 
 POST /rules inserts a new version. It does not edit the previous row.
 POST /rules/inactive marks one version INACTIVE.
+POST /rules/delete removes one version from unified.rule and refreshes
+matching event amounts from the source (event rows stay).
 GET /rules lists every version.
 GET /rules/columns?source= lists the source table columns a rule can filter on.
 GET /rules/filter-options?source= lists distinct vendor_id / offer_id values
@@ -272,6 +274,178 @@ def deactivate(body):
         """
     )
     return response(200, {"rule_id": rule_id, "rule_version": version, "status": "INACTIVE"})
+
+
+def load_rule_row(rule_id, version):
+    qid = start_and_wait(
+        f"""
+        SELECT type, source_id, calculation
+        FROM {RULES_TABLE}
+        WHERE rule_id = {sql_string(rule_id)}
+          AND rule_version = {version}
+          AND workspace_id = {sql_string(workspace_id())}
+        LIMIT 1
+        """
+    )
+    rows = list(read_rows(qid))
+    if not rows:
+        raise BadRequest("rule not found")
+    rule_type, source_id, calculation = rows[0]
+    return {
+        "type": rule_type,
+        "source_id": source_id,
+        "calculation": calculation or "{}",
+    }
+
+
+def source_amount_sql(rule_type, source_id, calculation):
+    """Latest source amount expression + join for events that used this rule."""
+    if rule_type == "REVENUE" and source_id == "homelight":
+        return {
+            "amount_col": "revenue",
+            "events": "unified.revenue_events",
+            "src": """
+              SELECT CAST(l.id AS varchar) AS lead_key,
+                     CAST(TRY_CAST(l.expected_revenue AS decimal(18,2)) AS decimal(18,2)) AS source_amount
+              FROM sampledb.revenue_leads_plus l
+              WHERE TRY_CAST(l.expected_revenue AS decimal(18,2)) IS NOT NULL
+            """,
+            "join": "trim(e.lead_id) = s.lead_key",
+        }
+    if rule_type == "REVENUE" and source_id == "uct":
+        return {
+            "amount_col": "revenue",
+            "events": "unified.revenue_events",
+            "src": """
+              SELECT trim(u.utm_content) AS lead_key,
+                     max_by(CAST(TRY_CAST(u.expected_revenue_vendor AS decimal(18,2)) AS decimal(18,2)), TRY_CAST(u.created_at AS timestamp)) AS source_amount
+              FROM unified.uct_revenue u
+              WHERE nullif(trim(u.utm_content), '') IS NOT NULL
+              GROUP BY 1
+            """,
+            "join": "trim(e.lead_id) = s.lead_key",
+        }
+    if rule_type == "REVENUE" and source_id == "phonexa":
+        return {
+            "amount_col": "revenue",
+            "events": "unified.revenue_events",
+            "src": """
+              SELECT CAST(p.lead_id AS varchar) AS lead_key,
+                     max_by(
+                       TRY_CAST(replace(replace(p.buyer_bid, '$', ''), ',', '') AS decimal(18,2)),
+                       TRY(CAST(p.date_pst AS timestamp))
+                     ) AS source_amount
+              FROM raw.phonexa_ref_raw p
+              WHERE nullif(trim(CAST(p.lead_id AS varchar)), '') IS NOT NULL
+              GROUP BY 1
+            """,
+            "join": "trim(e.lead_id) = s.lead_key",
+        }
+    if rule_type == "COST" and source_id == "tune":
+        return {
+            "amount_col": "amount",
+            "events": "unified.cost_events",
+            "src": """
+              SELECT nullif(trim(transaction_id), '') AS lead_key,
+                     max_by(CAST(TRY_CAST(payout_cents AS double) / 100.0 AS decimal(18,2)), datetime) AS source_amount
+              FROM raw.raw_tune_clicks
+              WHERE nullif(trim(transaction_id), '') IS NOT NULL
+              GROUP BY 1
+            """,
+            "join": "trim(COALESCE(e.source_record_id, e.lead_id)) = s.lead_key",
+        }
+    if rule_type == "COST" and source_id == "phonexa":
+        return {
+            "amount_col": "amount",
+            "events": "unified.cost_events",
+            "src": """
+              SELECT trim(lead_id) AS lead_key,
+                     max_by(CAST(TRY_CAST(publisher_payout AS double) AS decimal(18,2)), datetime_pst) AS source_amount
+              FROM raw.phonexa_ref_raw
+              WHERE nullif(trim(lead_id), '') IS NOT NULL
+              GROUP BY 1
+            """,
+            "join": "trim(e.lead_id) = s.lead_key",
+        }
+    if rule_type == "COST" and source_id == "sms":
+        try:
+            calc = json.loads(calculation or "{}")
+        except ValueError as exc:
+            raise BadRequest("rule calculation is invalid JSON") from exc
+        per = calc.get("per_count", 1000)
+        price = calc.get("amount")
+        if not NUMBER_RE.match(str(per)) or float(per) <= 0 or not NUMBER_RE.match(str(price)):
+            raise BadRequest("SMS rule needs per_count > 0 and amount to restore source value")
+        return {
+            "amount_col": "amount",
+            "events": "unified.cost_events",
+            "src": f"""
+              SELECT nullif(trim(session_id), '') AS lead_key,
+                     CAST(round(count(*) * {float(price)} / {float(per)}, 2) AS decimal(18,2)) AS source_amount
+              FROM unified.uct_events
+              WHERE event_type = 'SMS'
+                AND nullif(trim(session_id), '') IS NOT NULL
+              GROUP BY 1
+            """,
+            "join": "trim(e.session_id) = s.lead_key",
+        }
+    raise BadRequest(f"delete restore is not supported for {rule_type}/{source_id}")
+
+
+def refresh_events_from_source(rule_id, version, rule_type, source_id, calculation):
+    meta = source_amount_sql(rule_type, source_id, calculation)
+    amount_col = meta["amount_col"]
+    start_and_wait(
+        f"""
+        MERGE INTO {meta['events']} t
+        USING (
+          SELECT e.event_id, s.source_amount
+          FROM {meta['events']} e
+          JOIN ({meta['src']}) s
+            ON {meta['join']}
+          WHERE e.rule_id = {sql_string(rule_id)}
+            AND e.rule_version = {version}
+            AND cast(e.workspace_id AS varchar) = {sql_string(workspace_id())}
+            AND s.source_amount IS NOT NULL
+        ) s
+        ON t.event_id = s.event_id
+        WHEN MATCHED THEN UPDATE SET
+          {amount_col} = s.source_amount,
+          rule_id = CAST(NULL AS varchar),
+          rule_version = CAST(NULL AS integer),
+          processed_at = current_timestamp,
+          processing_run_id = 'rule-delete-restore'
+        """
+    )
+
+
+def delete_rule(body):
+    if not isinstance(body, dict):
+        raise BadRequest("body must be a JSON object")
+    rule_id = body.get("rule_id", "")
+    version = body.get("rule_version")
+    if not isinstance(rule_id, str) or not RULE_ID_RE.match(rule_id):
+        raise BadRequest("rule_id is invalid")
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise BadRequest("rule_version must be an integer")
+    row = load_rule_row(rule_id, version)
+    refresh_events_from_source(rule_id, version, row["type"], row["source_id"], row["calculation"])
+    start_and_wait(
+        f"""
+        DELETE FROM {RULES_TABLE}
+        WHERE rule_id = {sql_string(rule_id)}
+          AND rule_version = {version}
+          AND workspace_id = {sql_string(workspace_id())}
+        """
+    )
+    return response(200, {
+        "rule_id": rule_id,
+        "rule_version": version,
+        "status": "DELETED",
+        "type": row["type"],
+        "source_id": row["source_id"],
+        "events_restored_from_source": True,
+    })
 
 
 def source_columns(source_id):
@@ -1736,6 +1910,8 @@ def lambda_handler(event, context):
             return save_rule(body)
         if route == "POST /rules/inactive":
             return deactivate(body)
+        if route == "POST /rules/delete":
+            return delete_rule(body)
         if route == "POST /reconcile/preview":
             return preview(body)
         if route == "POST /reconcile/check":

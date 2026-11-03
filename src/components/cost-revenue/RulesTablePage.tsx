@@ -14,7 +14,7 @@ import { TenantSelect } from "@/components/revenue/RevenueBits";
 import { RuleBuilder } from "@/components/cost-revenue/RuleBuilder";
 import { Button } from "@/components/ui/button";
 import { ruleSourceLabel } from "@/lib/costRulePricing";
-import { KIND_LABELS, SOURCE_LABELS, deactivateRule, errMsg, isActive, listRules, statusLabel, valueLine, type ApiRule, type RuleType } from "@/lib/rulesApi";
+import { KIND_LABELS, SOURCE_LABELS, deactivateRule, deleteRule as deleteRuleApi, errMsg, isActive, listRules, statusLabel, valueLine, type ApiRule, type RuleType } from "@/lib/rulesApi";
 import { typeTone } from "@/lib/costRevenueData";
 import { NotSet } from "@/components/cost-revenue/bits";
 
@@ -53,9 +53,9 @@ export function RulesTablePage({ ruleType }: { ruleType: RuleType }) {
   };
   const deleteRule = async (r: ApiRule) => {
     try {
-      await deactivateRule(r.rule_id, r.rule_version);
+      await deleteRuleApi(r.rule_id, r.rule_version);
       hide(k(r));
-      toast.success(`Deleted ${r.name} v${r.rule_version} — hidden here and marked inactive in the source.`);
+      toast.success(`Deleted ${r.name} v${r.rule_version}. Matching events kept and set to the latest source amount.`);
       await qc.invalidateQueries({ queryKey: rulesQuery.queryKey });
     } catch (e) { toast.error(errMsg(e)); }
   };
@@ -147,7 +147,7 @@ export function RulesTablePage({ ruleType }: { ruleType: RuleType }) {
         <AlertDialogContent>
           <AlertDialogHeader>
           <AlertDialogTitle>Delete {toDelete?.name} v{toDelete?.rule_version}?</AlertDialogTitle>
-            <AlertDialogDescription>This hides the rule here and marks it inactive in the source. Events already calculated keep their amounts.</AlertDialogDescription>
+            <AlertDialogDescription>This permanently removes the rule. Event rows that used it stay, but their amounts are reset to the latest value from the source.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

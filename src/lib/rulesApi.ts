@@ -72,6 +72,8 @@ export async function listRules(): Promise<ApiRule[]> {
 }
 export const createRule = (body: NewRule) => call<{ rule_id: string; rule_version: number; status: string }>("/rules", { method: "POST", body: JSON.stringify(body) });
 export const deactivateRule = (rule_id: string, rule_version: number) => call<{ status: string }>("/rules/inactive", { method: "POST", body: JSON.stringify({ rule_id, rule_version }) });
+export const deleteRule = (rule_id: string, rule_version: number) =>
+  call<{ status: string; events_restored_from_source?: boolean }>("/rules/delete", { method: "POST", body: JSON.stringify({ rule_id, rule_version }) });
 
 // The API may return numbers as strings and null deltas when nothing is stored yet.
 export interface ReconcilePreviewRow { source_record_id: string; rule_id: string; rule_version: number | string; stored_amount: number | string | null; calculated_amount: number | string; delta: number | string | null }

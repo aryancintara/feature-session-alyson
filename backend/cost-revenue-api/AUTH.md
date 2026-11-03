@@ -20,3 +20,9 @@ JSON `{ "code", "message" }`:
 ## Manual check
 1. Omit token → 401 AUTHENTICATION_REQUIRED
 2. Live Alyson `x-auth-token` + `x-workspace-id: 253` → 200 on GET /rules and GET /sessions
+
+## Delete rule
+`POST /rules/delete` with `{ "rule_id", "rule_version" }`:
+1. Event rows that used that rule stay in `revenue_events` / `cost_events`
+2. Their amount/revenue is set to the latest source value
+3. The rule version is removed from `unified.rule`
