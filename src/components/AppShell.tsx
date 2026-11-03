@@ -127,18 +127,22 @@ const NAV: NavItem[] = [
     ],
   },
   {
-    label: "Cost & Revenue",
-    to: "/cost-revenue/rules",
+    label: "Revenue",
+    to: "/revenue/rules",
     icon: Database,
     group: "Unified Data",
     children: [
-      // Hidden at the user's request — Overview is not needed in the nav.
-      // { label: "Overview", to: "/cost-revenue/overview" },
-      // Hidden at the user's request — the Events tab is not needed in the nav.
-      // The route file (src/routes/cost-revenue.events.tsx) is untouched, so this line can be restored.
-      // { label: "Events", to: "/cost-revenue/events" },
-      { label: "Rules", to: "/cost-revenue/rules" },
-      { label: "Reconciliation", to: "/cost-revenue/reconciliation" },
+      { label: "Rules", to: "/revenue/rules" },
+      { label: "Reconciliation", to: "/revenue/reconciliation" },
+    ],
+  },
+  {
+    label: "Cost",
+    to: "/cost/rules",
+    icon: Database,
+    group: "Unified Data",
+    children: [
+      { label: "Rules", to: "/cost/rules" },
     ],
   },
 
@@ -158,6 +162,8 @@ const NAV: NavItem[] = [
 
 export function AppShell() {
   const location = useLocation();
+  const onRevenue = location.pathname === "/revenue" || location.pathname.startsWith("/revenue/");
+  const onCost = location.pathname === "/cost" || location.pathname.startsWith("/cost/");
   const onCostRevenue = location.pathname === "/cost-revenue" || location.pathname.startsWith("/cost-revenue/");
   const groups = Array.from(new Set(NAV.map((n) => n.group)));
   const [openItems, setOpenItems] = useState<Record<string, boolean>>(() => ({
@@ -197,7 +203,9 @@ export function AppShell() {
                 const active = routeActive(item.to) || isChildActive;
                 const Icon = item.icon;
                 const hasChildren = !!item.children?.length;
-                const groupOpen = hasChildren && (Boolean(openItems[item.to]) || (item.to === "/cost-revenue/rules" && onCostRevenue));
+                const groupOpen = hasChildren && (Boolean(openItems[item.to])
+                  || (item.to === "/revenue/rules" && (onRevenue || onCostRevenue))
+                  || (item.to === "/cost/rules" && onCost));
                 return (
                   <div key={item.to}>
                     <Link
@@ -238,7 +246,7 @@ export function AppShell() {
                     {hasChildren && groupOpen && (
                       <div className="mt-0.5 ml-2 space-y-0.5 border-l border-sidebar-border pl-2">
                         {item.children?.map((c) => {
-                          const cActive = location.pathname.replace(/\/$/, "") === c.to || ((c.to === "/unified-revenue/rules" || c.to === "/cost-revenue/rules") && location.pathname.startsWith(c.to + "/"));
+                          const cActive = location.pathname.replace(/\/$/, "") === c.to || ((c.to === "/unified-revenue/rules" || c.to === "/revenue/rules" || c.to === "/cost/rules") && location.pathname.startsWith(c.to + "/"));
                           return (
                             <Link
                               key={c.to}

@@ -158,6 +158,15 @@ def allowed_workspaces() -> set[str] | None:
     return {item.strip() for item in raw.split(",") if WORKSPACE_RE.match(item.strip())}
 
 
+def unauthenticated_allowed() -> bool:
+    return (os.environ.get("ALLOW_UNAUTHENTICATED") or "").strip().lower() in {"1", "true", "yes"}
+
+
+def default_workspace_id() -> str:
+    value = (os.environ.get("DEFAULT_WORKSPACE_ID") or "253").strip()
+    return value if WORKSPACE_RE.match(value) else "253"
+
+
 def authenticate_request(
     event: dict[str, Any],
     *,
@@ -166,7 +175,15 @@ def authenticate_request(
 ) -> RequestAuth:
     token = read_token(event)
     if not token:
-        raise AuthError(401, AUTHENTICATION_REQUIRED)
+        if not unauthenticated_allowed():
+            raise AuthError(401, AUTHENTICATION_REQUIRED)
+        workspace_id = None
+        if require_workspace:
+            workspace_id = read_workspace_id(event) or default_workspace_id()
+        return RequestAuth(
+            {"id": "anonymous", "email": None, "cognitoSub": None, "cognitoUsername": None, "verifiedEmail": None},
+            workspace_id,
+        )
     try:
         claims = (verify or default_verify)(token)
     except AuthError:
@@ -180,9 +197,6 @@ def authenticate_request(
     if require_workspace:
         workspace_id = read_workspace_id(event)
         if not workspace_id:
-            raw = header_map(event).get("x-workspace-id")
-            if raw:
-                raise AuthError(400, WORKSPACE_REQUIRED)
             raise AuthError(400, WORKSPACE_REQUIRED)
         allowed = allowed_workspaces()
         if allowed is not None and workspace_id not in allowed:

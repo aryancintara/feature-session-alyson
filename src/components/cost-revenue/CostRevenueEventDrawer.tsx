@@ -76,7 +76,7 @@ export function CostRevenueEventDrawer({ event: e, onClose }: { event: CREvent |
                 </div>
               ) : <p className="mt-2 text-xs text-muted-foreground">Logic not available for this rule.</p>}
               {inList ? (
-                <Button asChild variant="outline" size="sm" className="mt-2 w-full"><Link to="/cost-revenue/rules/$ruleId" params={{ ruleId: e.ruleId }} search={{ v: e.ruleVersion }}>View Rule</Link></Button>
+                <Button asChild variant="outline" size="sm" className="mt-2 w-full"><Link to={e.type === "COST" ? "/cost/rules/$ruleId" : "/revenue/rules/$ruleId"} params={{ ruleId: e.ruleId }} search={{ v: e.ruleVersion }}>View Rule</Link></Button>
               ) : (
                 <>
                   <p className="mt-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">This rule isn't in the Rules list, so its version history can't be shown</p>

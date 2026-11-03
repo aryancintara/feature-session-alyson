@@ -666,7 +666,7 @@
 // }
 
 import { useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { CalendarDays, CircleAlert, Search, CheckCircle2, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/ui-bits";
 import { TenantSelect } from "@/components/revenue/RevenueBits";
@@ -685,15 +685,9 @@ import {
 } from "@/lib/reconciliationLog";
 
 export const Route = createFileRoute("/cost-revenue/reconciliation")({
-  head: () => ({ meta: [
-    { title: "Revenue Reconciliation · Alyson CDP" },
-    { name: "description", content: "Check source revenue against loaded revenue for completed days, weeks and months." },
-    { property: "og:title", content: "Revenue Reconciliation · Alyson CDP" },
-    { property: "og:description", content: "Compare source and loaded totals and identify missing revenue leads for past periods." },
-    { property: "og:type", content: "website" },
-    { name: "twitter:card", content: "summary" },
-  ] }),
-  component: Reconciliation,
+  beforeLoad: () => {
+    throw redirect({ to: "/revenue/reconciliation" });
+  },
 });
 
 export type CheckPeriod = "day" | "week" | "month";
@@ -804,7 +798,7 @@ export function previewSessionDetails(row: SessionPreviewRow) {
 }
 
 
-function Reconciliation() {
+export function Reconciliation() {
   const [today, setToday] = useState("");
   const [kind, setKind] = useState<CheckPeriod>("day");
   const [selected, setSelected] = useState("");
@@ -970,7 +964,7 @@ function Reconciliation() {
   const sourceLabel = source === "homelight" ? "HomeLight" : source === "phonexa" ? "Phonexa" : "UCT";
   return (
     <div className="space-y-6 px-6 pb-10">
-      <PageHeader className="px-0" title="Reconciliation" subtitle="Wait 5 days, then Check that date for missing leads." />
+      <PageHeader className="px-0" title="Revenue Reconciliation" subtitle="Wait 5 days, then Check that date for missing revenue leads." />
 
       <section className="rounded-xl border border-border bg-card p-5" aria-label="Check a date">
         <div className="flex flex-wrap items-start justify-between gap-3">

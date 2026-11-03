@@ -65,14 +65,16 @@ const defaultField = (src: string) => DEFAULT_FIELDS[src] ?? SOURCE_FIELDS[src]?
 const sourcesFor = (t: RuleType) => RULE_SOURCES[t];
 
 /** Cost/Revenue rule wizard. Saves to the Rules API; editing posts a new version of the same rule_id. */
-export function RuleBuilder({ open, onOpenChange, onSaved, editing }: { open: boolean; onOpenChange: (o: boolean) => void; onSaved: (id: string, version: number) => void; editing?: ApiRule | null }) {
+export function RuleBuilder({ open, onOpenChange, onSaved, editing, lockedType }: { open: boolean; onOpenChange: (o: boolean) => void; onSaved: (id: string, version: number) => void; editing?: ApiRule | null; lockedType?: RuleType }) {
   const queryClient = useQueryClient();
   const init = () => {
     const c = editing?.calculation;
     const known = c && (c.kind === "revenue_share" || c.kind === "roas" || c.kind === "event") ? c : c?.kind === "event_based" ? { kind: "event" as const, field: "", percent: null, amount: c.amount } : c?.kind === "sms_per_count" ? { kind: "event" as const, field: "", percent: null, amount: c.amount, per: c.per_count } : null;
-    const source = (editing && ruleSmsKey(editing)) || (editing?.source_id ?? "homelight");
+    const type = (editing?.type ?? lockedType ?? "REVENUE") as RuleType;
+    const defaultSource = type === "COST" ? "tune" : "homelight";
+    const source = (editing && ruleSmsKey(editing)) || (editing?.source_id ?? defaultSource);
     return {
-      name: editing?.name ?? "", type: (editing?.type ?? "REVENUE") as RuleType, source,
+      name: editing?.name ?? "", type, source,
       field: (c && "field" in c ? c.field : "") || defaultField(source),
       kind: (known?.kind ?? "revenue_share") as CalcKind,
       percent: known?.percent != null ? String(known.percent) : "",
@@ -211,7 +213,13 @@ export function RuleBuilder({ open, onOpenChange, onSaved, editing }: { open: bo
               <p className="mt-1 text-xs text-muted-foreground">Rule ID: <span className="font-mono">{ruleId || "—"}</span>{f.name && !RULE_ID_RE.test(ruleId) && <span className="text-destructive"> · must start with a letter; lowercase letters, numbers, underscores</span>}</p>
               <Hint show={!f.name.trim()}>Add a rule name.</Hint>
               {nameTaken && <p className="mt-1 text-xs text-warning">A rule with this name already exists. Saving will create a new version of it.</p>}</div>
-            <Field label="Applies to"><div className="flex gap-1">{(["REVENUE", "COST"] as const).map((t) => <Button key={t} type="button" size="sm" variant={f.type === t ? "default" : "outline"} onClick={() => setType(t)}>{t === "COST" ? "Cost" : "Revenue"}</Button>)}</div></Field>
+            <Field label="Applies to">
+              {lockedType ? (
+                <div className="flex h-9 items-center text-sm font-medium text-foreground">{lockedType === "COST" ? "Cost" : "Revenue"}</div>
+              ) : (
+                <div className="flex gap-1">{(["REVENUE", "COST"] as const).map((t) => <Button key={t} type="button" size="sm" variant={f.type === t ? "default" : "outline"} onClick={() => setType(t)}>{t === "COST" ? "Cost" : "Revenue"}</Button>)}</div>
+              )}
+            </Field>
             <Field label="Source">
               <select className={sel} value={f.source} disabled={!!editing} onChange={(e) => { const s = e.target.value; setF({ ...f, source: s, field: defaultField(s), kind: SMS_CONNECTORS[s] ? "event" : "revenue_share", amount: "", percent: "", smsQty: "1", vendors: [], offers: [], conds: [] }); }}>
                 <option value="">Choose source</option>

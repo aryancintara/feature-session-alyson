@@ -14,6 +14,7 @@ import { Route as AccuracyRouteImport } from './routes/accuracy'
 import { Route as AudienceBuilderRouteImport } from './routes/audience-builder'
 import { Route as AudiencesRouteImport } from './routes/audiences'
 import { Route as ConsentRouteImport } from './routes/consent'
+import { Route as CostRouteImport } from './routes/cost'
 import { Route as CostRevenueRouteImport } from './routes/cost-revenue'
 import { Route as DataExplorerRouteImport } from './routes/data-explorer'
 import { Route as DestinationsRouteImport } from './routes/destinations'
@@ -26,6 +27,7 @@ import { Route as IdentityConsoleRouteImport } from './routes/identity-console'
 import { Route as IdentityGraphRouteImport } from './routes/identity-graph'
 import { Route as PeopleRouteImport } from './routes/people'
 import { Route as ReactivationRouteImport } from './routes/reactivation'
+import { Route as RevenueRouteImport } from './routes/revenue'
 import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as SourcesRouteImport } from './routes/sources'
 import { Route as UnifiedLeadsRouteImport } from './routes/unified-leads'
@@ -35,6 +37,8 @@ import { Route as CostRevenueIndexRouteImport } from './routes/cost-revenue.inde
 import { Route as CostRevenueEventsRouteImport } from './routes/cost-revenue.events'
 import { Route as CostRevenueOverviewRouteImport } from './routes/cost-revenue.overview'
 import { Route as CostRevenueReconciliationRouteImport } from './routes/cost-revenue.reconciliation'
+import { Route as CostIndexRouteImport } from './routes/cost.index'
+import { Route as CostReconciliationRouteImport } from './routes/cost.reconciliation'
 import { Route as IdentityConsoleIndexRouteImport } from './routes/identity-console.index'
 import { Route as IdentityConsoleAccuracyRouteImport } from './routes/identity-console.accuracy'
 import { Route as IdentityConsoleDecisionsRouteImport } from './routes/identity-console.decisions'
@@ -52,6 +56,8 @@ import { Route as IdentityErrorsRouteImport } from './routes/identity.errors'
 import { Route as IdentityExplorerRouteImport } from './routes/identity.explorer'
 import { Route as IdentityMethodsRouteImport } from './routes/identity.methods'
 import { Route as IdentityValidationRouteImport } from './routes/identity.validation'
+import { Route as RevenueIndexRouteImport } from './routes/revenue.index'
+import { Route as RevenueReconciliationRouteImport } from './routes/revenue.reconciliation'
 import { Route as UnifiedLeadsIndexRouteImport } from './routes/unified-leads.index'
 import { Route as UnifiedLeadsLoginRouteImport } from './routes/unified-leads.login'
 import { Route as UnifiedLeadsPipelineApiHealthRouteImport } from './routes/unified-leads.pipeline-api-health'
@@ -69,6 +75,10 @@ import { Route as UnifiedEventsRouteImport } from './routes/unified.events'
 import { Route as UnifiedPropertiesRouteImport } from './routes/unified.properties'
 import { Route as CostRevenueRulesIndexRouteImport } from './routes/cost-revenue.rules.index'
 import { Route as CostRevenueRulesRuleIdRouteImport } from './routes/cost-revenue.rules.$ruleId'
+import { Route as CostRulesIndexRouteImport } from './routes/cost.rules.index'
+import { Route as CostRulesRuleIdRouteImport } from './routes/cost.rules.$ruleId'
+import { Route as RevenueRulesIndexRouteImport } from './routes/revenue.rules.index'
+import { Route as RevenueRulesRuleIdRouteImport } from './routes/revenue.rules.$ruleId'
 import { Route as UnifiedRevenueRulesIndexRouteImport } from './routes/unified-revenue.rules.index'
 import { Route as UnifiedRevenueRulesRuleIdRouteImport } from './routes/unified-revenue.rules.$ruleId'
 import { Route as UnifiedTablesLabsFeatureRouteImport } from './routes/unified-tables.labs.$feature'
@@ -96,6 +106,11 @@ const AudiencesRoute = AudiencesRouteImport.update({
 const ConsentRoute = ConsentRouteImport.update({
   id: '/consent',
   path: '/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CostRoute = CostRouteImport.update({
+  id: '/cost',
+  path: '/cost',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CostRevenueRoute = CostRevenueRouteImport.update({
@@ -158,6 +173,11 @@ const ReactivationRoute = ReactivationRouteImport.update({
   path: '/reactivation',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RevenueRoute = RevenueRouteImport.update({
+  id: '/revenue',
+  path: '/revenue',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SessionsRoute = SessionsRouteImport.update({
   id: '/sessions',
   path: '/sessions',
@@ -204,6 +224,16 @@ const CostRevenueReconciliationRoute =
     path: '/reconciliation',
     getParentRoute: () => CostRevenueRoute,
   } as any)
+const CostIndexRoute = CostIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CostRoute,
+} as any)
+const CostReconciliationRoute = CostReconciliationRouteImport.update({
+  id: '/reconciliation',
+  path: '/reconciliation',
+  getParentRoute: () => CostRoute,
+} as any)
 const IdentityConsoleIndexRoute = IdentityConsoleIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -290,6 +320,16 @@ const IdentityValidationRoute = IdentityValidationRouteImport.update({
   id: '/validation',
   path: '/validation',
   getParentRoute: () => IdentityRoute,
+} as any)
+const RevenueIndexRoute = RevenueIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RevenueRoute,
+} as any)
+const RevenueReconciliationRoute = RevenueReconciliationRouteImport.update({
+  id: '/reconciliation',
+  path: '/reconciliation',
+  getParentRoute: () => RevenueRoute,
 } as any)
 const UnifiedLeadsIndexRoute = UnifiedLeadsIndexRouteImport.update({
   id: '/',
@@ -378,6 +418,26 @@ const CostRevenueRulesRuleIdRoute = CostRevenueRulesRuleIdRouteImport.update({
   path: '/rules/$ruleId',
   getParentRoute: () => CostRevenueRoute,
 } as any)
+const CostRulesIndexRoute = CostRulesIndexRouteImport.update({
+  id: '/rules/',
+  path: '/rules/',
+  getParentRoute: () => CostRoute,
+} as any)
+const CostRulesRuleIdRoute = CostRulesRuleIdRouteImport.update({
+  id: '/rules/$ruleId',
+  path: '/rules/$ruleId',
+  getParentRoute: () => CostRoute,
+} as any)
+const RevenueRulesIndexRoute = RevenueRulesIndexRouteImport.update({
+  id: '/rules/',
+  path: '/rules/',
+  getParentRoute: () => RevenueRoute,
+} as any)
+const RevenueRulesRuleIdRoute = RevenueRulesRuleIdRouteImport.update({
+  id: '/rules/$ruleId',
+  path: '/rules/$ruleId',
+  getParentRoute: () => RevenueRoute,
+} as any)
 const UnifiedRevenueRulesIndexRoute =
   UnifiedRevenueRulesIndexRouteImport.update({
     id: '/rules/',
@@ -403,6 +463,7 @@ export interface FileRoutesByFullPath {
   '/audience-builder': typeof AudienceBuilderRoute
   '/audiences': typeof AudiencesRoute
   '/consent': typeof ConsentRoute
+  '/cost': typeof CostRouteWithChildren
   '/cost-revenue': typeof CostRevenueRouteWithChildren
   '/data-explorer': typeof DataExplorerRoute
   '/destinations': typeof DestinationsRoute
@@ -415,6 +476,7 @@ export interface FileRoutesByFullPath {
   '/identity-graph': typeof IdentityGraphRouteWithChildren
   '/people': typeof PeopleRoute
   '/reactivation': typeof ReactivationRoute
+  '/revenue': typeof RevenueRouteWithChildren
   '/sessions': typeof SessionsRoute
   '/sources': typeof SourcesRoute
   '/unified-leads': typeof UnifiedLeadsRouteWithChildren
@@ -423,6 +485,7 @@ export interface FileRoutesByFullPath {
   '/cost-revenue/events': typeof CostRevenueEventsRoute
   '/cost-revenue/overview': typeof CostRevenueOverviewRoute
   '/cost-revenue/reconciliation': typeof CostRevenueReconciliationRoute
+  '/cost/reconciliation': typeof CostReconciliationRoute
   '/identity-console/accuracy': typeof IdentityConsoleAccuracyRoute
   '/identity-console/decisions': typeof IdentityConsoleDecisionsRoute
   '/identity-console/errors': typeof IdentityConsoleErrorsRoute
@@ -437,6 +500,7 @@ export interface FileRoutesByFullPath {
   '/identity/explorer': typeof IdentityExplorerRoute
   '/identity/methods': typeof IdentityMethodsRoute
   '/identity/validation': typeof IdentityValidationRoute
+  '/revenue/reconciliation': typeof RevenueReconciliationRoute
   '/unified-leads/login': typeof UnifiedLeadsLoginRoute
   '/unified-leads/pipeline-api-health': typeof UnifiedLeadsPipelineApiHealthRoute
   '/unified-properties/pipeline-api-health': typeof UnifiedPropertiesPipelineApiHealthRoute
@@ -449,17 +513,23 @@ export interface FileRoutesByFullPath {
   '/unified/events': typeof UnifiedEventsRoute
   '/unified/properties': typeof UnifiedPropertiesRoute
   '/cost-revenue/': typeof CostRevenueIndexRoute
+  '/cost/': typeof CostIndexRoute
   '/identity-console/': typeof IdentityConsoleIndexRoute
   '/identity-graph/': typeof IdentityGraphIndexRoute
   '/identity/': typeof IdentityIndexRoute
+  '/revenue/': typeof RevenueIndexRoute
   '/unified-leads/': typeof UnifiedLeadsIndexRoute
   '/unified-properties/': typeof UnifiedPropertiesIndexRoute
   '/unified-revenue/': typeof UnifiedRevenueIndexRoute
   '/unified-tables/': typeof UnifiedTablesIndexRoute
   '/cost-revenue/rules/$ruleId': typeof CostRevenueRulesRuleIdRoute
+  '/cost/rules/$ruleId': typeof CostRulesRuleIdRoute
+  '/revenue/rules/$ruleId': typeof RevenueRulesRuleIdRoute
   '/unified-revenue/rules/$ruleId': typeof UnifiedRevenueRulesRuleIdRoute
   '/unified-tables/labs/$feature': typeof UnifiedTablesLabsFeatureRoute
   '/cost-revenue/rules/': typeof CostRevenueRulesIndexRoute
+  '/cost/rules/': typeof CostRulesIndexRoute
+  '/revenue/rules/': typeof RevenueRulesIndexRoute
   '/unified-revenue/rules/': typeof UnifiedRevenueRulesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -481,6 +551,7 @@ export interface FileRoutesByTo {
   '/cost-revenue/events': typeof CostRevenueEventsRoute
   '/cost-revenue/overview': typeof CostRevenueOverviewRoute
   '/cost-revenue/reconciliation': typeof CostRevenueReconciliationRoute
+  '/cost/reconciliation': typeof CostReconciliationRoute
   '/identity-console/accuracy': typeof IdentityConsoleAccuracyRoute
   '/identity-console/decisions': typeof IdentityConsoleDecisionsRoute
   '/identity-console/errors': typeof IdentityConsoleErrorsRoute
@@ -495,6 +566,7 @@ export interface FileRoutesByTo {
   '/identity/explorer': typeof IdentityExplorerRoute
   '/identity/methods': typeof IdentityMethodsRoute
   '/identity/validation': typeof IdentityValidationRoute
+  '/revenue/reconciliation': typeof RevenueReconciliationRoute
   '/unified-leads/login': typeof UnifiedLeadsLoginRoute
   '/unified-leads/pipeline-api-health': typeof UnifiedLeadsPipelineApiHealthRoute
   '/unified-properties/pipeline-api-health': typeof UnifiedPropertiesPipelineApiHealthRoute
@@ -507,17 +579,23 @@ export interface FileRoutesByTo {
   '/unified/events': typeof UnifiedEventsRoute
   '/unified/properties': typeof UnifiedPropertiesRoute
   '/cost-revenue': typeof CostRevenueIndexRoute
+  '/cost': typeof CostIndexRoute
   '/identity-console': typeof IdentityConsoleIndexRoute
   '/identity-graph': typeof IdentityGraphIndexRoute
   '/identity': typeof IdentityIndexRoute
+  '/revenue': typeof RevenueIndexRoute
   '/unified-leads': typeof UnifiedLeadsIndexRoute
   '/unified-properties': typeof UnifiedPropertiesIndexRoute
   '/unified-revenue': typeof UnifiedRevenueIndexRoute
   '/unified-tables': typeof UnifiedTablesIndexRoute
   '/cost-revenue/rules/$ruleId': typeof CostRevenueRulesRuleIdRoute
+  '/cost/rules/$ruleId': typeof CostRulesRuleIdRoute
+  '/revenue/rules/$ruleId': typeof RevenueRulesRuleIdRoute
   '/unified-revenue/rules/$ruleId': typeof UnifiedRevenueRulesRuleIdRoute
   '/unified-tables/labs/$feature': typeof UnifiedTablesLabsFeatureRoute
   '/cost-revenue/rules': typeof CostRevenueRulesIndexRoute
+  '/cost/rules': typeof CostRulesIndexRoute
+  '/revenue/rules': typeof RevenueRulesIndexRoute
   '/unified-revenue/rules': typeof UnifiedRevenueRulesIndexRoute
 }
 export interface FileRoutesById {
@@ -527,6 +605,7 @@ export interface FileRoutesById {
   '/audience-builder': typeof AudienceBuilderRoute
   '/audiences': typeof AudiencesRoute
   '/consent': typeof ConsentRoute
+  '/cost': typeof CostRouteWithChildren
   '/cost-revenue': typeof CostRevenueRouteWithChildren
   '/data-explorer': typeof DataExplorerRoute
   '/destinations': typeof DestinationsRoute
@@ -539,6 +618,7 @@ export interface FileRoutesById {
   '/identity-graph': typeof IdentityGraphRouteWithChildren
   '/people': typeof PeopleRoute
   '/reactivation': typeof ReactivationRoute
+  '/revenue': typeof RevenueRouteWithChildren
   '/sessions': typeof SessionsRoute
   '/sources': typeof SourcesRoute
   '/unified-leads': typeof UnifiedLeadsRouteWithChildren
@@ -547,6 +627,7 @@ export interface FileRoutesById {
   '/cost-revenue/events': typeof CostRevenueEventsRoute
   '/cost-revenue/overview': typeof CostRevenueOverviewRoute
   '/cost-revenue/reconciliation': typeof CostRevenueReconciliationRoute
+  '/cost/reconciliation': typeof CostReconciliationRoute
   '/identity-console/accuracy': typeof IdentityConsoleAccuracyRoute
   '/identity-console/decisions': typeof IdentityConsoleDecisionsRoute
   '/identity-console/errors': typeof IdentityConsoleErrorsRoute
@@ -561,6 +642,7 @@ export interface FileRoutesById {
   '/identity/explorer': typeof IdentityExplorerRoute
   '/identity/methods': typeof IdentityMethodsRoute
   '/identity/validation': typeof IdentityValidationRoute
+  '/revenue/reconciliation': typeof RevenueReconciliationRoute
   '/unified-leads/login': typeof UnifiedLeadsLoginRoute
   '/unified-leads/pipeline-api-health': typeof UnifiedLeadsPipelineApiHealthRoute
   '/unified-properties/pipeline-api-health': typeof UnifiedPropertiesPipelineApiHealthRoute
@@ -573,17 +655,23 @@ export interface FileRoutesById {
   '/unified/events': typeof UnifiedEventsRoute
   '/unified/properties': typeof UnifiedPropertiesRoute
   '/cost-revenue/': typeof CostRevenueIndexRoute
+  '/cost/': typeof CostIndexRoute
   '/identity-console/': typeof IdentityConsoleIndexRoute
   '/identity-graph/': typeof IdentityGraphIndexRoute
   '/identity/': typeof IdentityIndexRoute
+  '/revenue/': typeof RevenueIndexRoute
   '/unified-leads/': typeof UnifiedLeadsIndexRoute
   '/unified-properties/': typeof UnifiedPropertiesIndexRoute
   '/unified-revenue/': typeof UnifiedRevenueIndexRoute
   '/unified-tables/': typeof UnifiedTablesIndexRoute
   '/cost-revenue/rules/$ruleId': typeof CostRevenueRulesRuleIdRoute
+  '/cost/rules/$ruleId': typeof CostRulesRuleIdRoute
+  '/revenue/rules/$ruleId': typeof RevenueRulesRuleIdRoute
   '/unified-revenue/rules/$ruleId': typeof UnifiedRevenueRulesRuleIdRoute
   '/unified-tables/labs/$feature': typeof UnifiedTablesLabsFeatureRoute
   '/cost-revenue/rules/': typeof CostRevenueRulesIndexRoute
+  '/cost/rules/': typeof CostRulesIndexRoute
+  '/revenue/rules/': typeof RevenueRulesIndexRoute
   '/unified-revenue/rules/': typeof UnifiedRevenueRulesIndexRoute
 }
 export interface FileRouteTypes {
@@ -594,6 +682,7 @@ export interface FileRouteTypes {
     | '/audience-builder'
     | '/audiences'
     | '/consent'
+    | '/cost'
     | '/cost-revenue'
     | '/data-explorer'
     | '/destinations'
@@ -606,6 +695,7 @@ export interface FileRouteTypes {
     | '/identity-graph'
     | '/people'
     | '/reactivation'
+    | '/revenue'
     | '/sessions'
     | '/sources'
     | '/unified-leads'
@@ -614,6 +704,7 @@ export interface FileRouteTypes {
     | '/cost-revenue/events'
     | '/cost-revenue/overview'
     | '/cost-revenue/reconciliation'
+    | '/cost/reconciliation'
     | '/identity-console/accuracy'
     | '/identity-console/decisions'
     | '/identity-console/errors'
@@ -628,6 +719,7 @@ export interface FileRouteTypes {
     | '/identity/explorer'
     | '/identity/methods'
     | '/identity/validation'
+    | '/revenue/reconciliation'
     | '/unified-leads/login'
     | '/unified-leads/pipeline-api-health'
     | '/unified-properties/pipeline-api-health'
@@ -640,17 +732,23 @@ export interface FileRouteTypes {
     | '/unified/events'
     | '/unified/properties'
     | '/cost-revenue/'
+    | '/cost/'
     | '/identity-console/'
     | '/identity-graph/'
     | '/identity/'
+    | '/revenue/'
     | '/unified-leads/'
     | '/unified-properties/'
     | '/unified-revenue/'
     | '/unified-tables/'
     | '/cost-revenue/rules/$ruleId'
+    | '/cost/rules/$ruleId'
+    | '/revenue/rules/$ruleId'
     | '/unified-revenue/rules/$ruleId'
     | '/unified-tables/labs/$feature'
     | '/cost-revenue/rules/'
+    | '/cost/rules/'
+    | '/revenue/rules/'
     | '/unified-revenue/rules/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -672,6 +770,7 @@ export interface FileRouteTypes {
     | '/cost-revenue/events'
     | '/cost-revenue/overview'
     | '/cost-revenue/reconciliation'
+    | '/cost/reconciliation'
     | '/identity-console/accuracy'
     | '/identity-console/decisions'
     | '/identity-console/errors'
@@ -686,6 +785,7 @@ export interface FileRouteTypes {
     | '/identity/explorer'
     | '/identity/methods'
     | '/identity/validation'
+    | '/revenue/reconciliation'
     | '/unified-leads/login'
     | '/unified-leads/pipeline-api-health'
     | '/unified-properties/pipeline-api-health'
@@ -698,17 +798,23 @@ export interface FileRouteTypes {
     | '/unified/events'
     | '/unified/properties'
     | '/cost-revenue'
+    | '/cost'
     | '/identity-console'
     | '/identity-graph'
     | '/identity'
+    | '/revenue'
     | '/unified-leads'
     | '/unified-properties'
     | '/unified-revenue'
     | '/unified-tables'
     | '/cost-revenue/rules/$ruleId'
+    | '/cost/rules/$ruleId'
+    | '/revenue/rules/$ruleId'
     | '/unified-revenue/rules/$ruleId'
     | '/unified-tables/labs/$feature'
     | '/cost-revenue/rules'
+    | '/cost/rules'
+    | '/revenue/rules'
     | '/unified-revenue/rules'
   id:
     | '__root__'
@@ -717,6 +823,7 @@ export interface FileRouteTypes {
     | '/audience-builder'
     | '/audiences'
     | '/consent'
+    | '/cost'
     | '/cost-revenue'
     | '/data-explorer'
     | '/destinations'
@@ -729,6 +836,7 @@ export interface FileRouteTypes {
     | '/identity-graph'
     | '/people'
     | '/reactivation'
+    | '/revenue'
     | '/sessions'
     | '/sources'
     | '/unified-leads'
@@ -737,6 +845,7 @@ export interface FileRouteTypes {
     | '/cost-revenue/events'
     | '/cost-revenue/overview'
     | '/cost-revenue/reconciliation'
+    | '/cost/reconciliation'
     | '/identity-console/accuracy'
     | '/identity-console/decisions'
     | '/identity-console/errors'
@@ -751,6 +860,7 @@ export interface FileRouteTypes {
     | '/identity/explorer'
     | '/identity/methods'
     | '/identity/validation'
+    | '/revenue/reconciliation'
     | '/unified-leads/login'
     | '/unified-leads/pipeline-api-health'
     | '/unified-properties/pipeline-api-health'
@@ -763,17 +873,23 @@ export interface FileRouteTypes {
     | '/unified/events'
     | '/unified/properties'
     | '/cost-revenue/'
+    | '/cost/'
     | '/identity-console/'
     | '/identity-graph/'
     | '/identity/'
+    | '/revenue/'
     | '/unified-leads/'
     | '/unified-properties/'
     | '/unified-revenue/'
     | '/unified-tables/'
     | '/cost-revenue/rules/$ruleId'
+    | '/cost/rules/$ruleId'
+    | '/revenue/rules/$ruleId'
     | '/unified-revenue/rules/$ruleId'
     | '/unified-tables/labs/$feature'
     | '/cost-revenue/rules/'
+    | '/cost/rules/'
+    | '/revenue/rules/'
     | '/unified-revenue/rules/'
   fileRoutesById: FileRoutesById
 }
@@ -783,6 +899,7 @@ export interface RootRouteChildren {
   AudienceBuilderRoute: typeof AudienceBuilderRoute
   AudiencesRoute: typeof AudiencesRoute
   ConsentRoute: typeof ConsentRoute
+  CostRoute: typeof CostRouteWithChildren
   CostRevenueRoute: typeof CostRevenueRouteWithChildren
   DataExplorerRoute: typeof DataExplorerRoute
   DestinationsRoute: typeof DestinationsRoute
@@ -795,6 +912,7 @@ export interface RootRouteChildren {
   IdentityGraphRoute: typeof IdentityGraphRouteWithChildren
   PeopleRoute: typeof PeopleRoute
   ReactivationRoute: typeof ReactivationRoute
+  RevenueRoute: typeof RevenueRouteWithChildren
   SessionsRoute: typeof SessionsRoute
   SourcesRoute: typeof SourcesRoute
   UnifiedLeadsRoute: typeof UnifiedLeadsRouteWithChildren
@@ -842,6 +960,13 @@ declare module '@tanstack/react-router' {
       path: '/consent'
       fullPath: '/consent'
       preLoaderRoute: typeof ConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cost': {
+      id: '/cost'
+      path: '/cost'
+      fullPath: '/cost'
+      preLoaderRoute: typeof CostRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cost-revenue': {
@@ -928,6 +1053,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReactivationRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/revenue': {
+      id: '/revenue'
+      path: '/revenue'
+      fullPath: '/revenue'
+      preLoaderRoute: typeof RevenueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sessions': {
       id: '/sessions'
       path: '/sessions'
@@ -990,6 +1122,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/cost-revenue/reconciliation'
       preLoaderRoute: typeof CostRevenueReconciliationRouteImport
       parentRoute: typeof CostRevenueRoute
+    }
+    '/cost/': {
+      id: '/cost/'
+      path: '/'
+      fullPath: '/cost/'
+      preLoaderRoute: typeof CostIndexRouteImport
+      parentRoute: typeof CostRoute
+    }
+    '/cost/reconciliation': {
+      id: '/cost/reconciliation'
+      path: '/reconciliation'
+      fullPath: '/cost/reconciliation'
+      preLoaderRoute: typeof CostReconciliationRouteImport
+      parentRoute: typeof CostRoute
     }
     '/identity-console/': {
       id: '/identity-console/'
@@ -1110,6 +1256,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IdentityValidationRouteImport
       parentRoute: typeof IdentityRoute
     }
+    '/revenue/': {
+      id: '/revenue/'
+      path: '/'
+      fullPath: '/revenue/'
+      preLoaderRoute: typeof RevenueIndexRouteImport
+      parentRoute: typeof RevenueRoute
+    }
+    '/revenue/reconciliation': {
+      id: '/revenue/reconciliation'
+      path: '/reconciliation'
+      fullPath: '/revenue/reconciliation'
+      preLoaderRoute: typeof RevenueReconciliationRouteImport
+      parentRoute: typeof RevenueRoute
+    }
     '/unified-leads/': {
       id: '/unified-leads/'
       path: '/'
@@ -1229,6 +1389,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CostRevenueRulesRuleIdRouteImport
       parentRoute: typeof CostRevenueRoute
     }
+    '/cost/rules/': {
+      id: '/cost/rules/'
+      path: '/rules'
+      fullPath: '/cost/rules/'
+      preLoaderRoute: typeof CostRulesIndexRouteImport
+      parentRoute: typeof CostRoute
+    }
+    '/cost/rules/$ruleId': {
+      id: '/cost/rules/$ruleId'
+      path: '/rules/$ruleId'
+      fullPath: '/cost/rules/$ruleId'
+      preLoaderRoute: typeof CostRulesRuleIdRouteImport
+      parentRoute: typeof CostRoute
+    }
+    '/revenue/rules/': {
+      id: '/revenue/rules/'
+      path: '/rules'
+      fullPath: '/revenue/rules/'
+      preLoaderRoute: typeof RevenueRulesIndexRouteImport
+      parentRoute: typeof RevenueRoute
+    }
+    '/revenue/rules/$ruleId': {
+      id: '/revenue/rules/$ruleId'
+      path: '/rules/$ruleId'
+      fullPath: '/revenue/rules/$ruleId'
+      preLoaderRoute: typeof RevenueRulesRuleIdRouteImport
+      parentRoute: typeof RevenueRoute
+    }
     '/unified-revenue/rules/': {
       id: '/unified-revenue/rules/'
       path: '/rules'
@@ -1252,6 +1440,22 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface CostRouteChildren {
+  CostReconciliationRoute: typeof CostReconciliationRoute
+  CostIndexRoute: typeof CostIndexRoute
+  CostRulesRuleIdRoute: typeof CostRulesRuleIdRoute
+  CostRulesIndexRoute: typeof CostRulesIndexRoute
+}
+
+const CostRouteChildren: CostRouteChildren = {
+  CostReconciliationRoute: CostReconciliationRoute,
+  CostIndexRoute: CostIndexRoute,
+  CostRulesRuleIdRoute: CostRulesRuleIdRoute,
+  CostRulesIndexRoute: CostRulesIndexRoute,
+}
+
+const CostRouteWithChildren = CostRoute._addFileChildren(CostRouteChildren)
 
 interface CostRevenueRouteChildren {
   CostRevenueEventsRoute: typeof CostRevenueEventsRoute
@@ -1339,6 +1543,23 @@ const IdentityGraphRouteWithChildren = IdentityGraphRoute._addFileChildren(
   IdentityGraphRouteChildren,
 )
 
+interface RevenueRouteChildren {
+  RevenueReconciliationRoute: typeof RevenueReconciliationRoute
+  RevenueIndexRoute: typeof RevenueIndexRoute
+  RevenueRulesRuleIdRoute: typeof RevenueRulesRuleIdRoute
+  RevenueRulesIndexRoute: typeof RevenueRulesIndexRoute
+}
+
+const RevenueRouteChildren: RevenueRouteChildren = {
+  RevenueReconciliationRoute: RevenueReconciliationRoute,
+  RevenueIndexRoute: RevenueIndexRoute,
+  RevenueRulesRuleIdRoute: RevenueRulesRuleIdRoute,
+  RevenueRulesIndexRoute: RevenueRulesIndexRoute,
+}
+
+const RevenueRouteWithChildren =
+  RevenueRoute._addFileChildren(RevenueRouteChildren)
+
 interface UnifiedLeadsRouteChildren {
   UnifiedLeadsLoginRoute: typeof UnifiedLeadsLoginRoute
   UnifiedLeadsPipelineApiHealthRoute: typeof UnifiedLeadsPipelineApiHealthRoute
@@ -1401,6 +1622,7 @@ const rootRouteChildren: RootRouteChildren = {
   AudienceBuilderRoute: AudienceBuilderRoute,
   AudiencesRoute: AudiencesRoute,
   ConsentRoute: ConsentRoute,
+  CostRoute: CostRouteWithChildren,
   CostRevenueRoute: CostRevenueRouteWithChildren,
   DataExplorerRoute: DataExplorerRoute,
   DestinationsRoute: DestinationsRoute,
@@ -1413,6 +1635,7 @@ const rootRouteChildren: RootRouteChildren = {
   IdentityGraphRoute: IdentityGraphRouteWithChildren,
   PeopleRoute: PeopleRoute,
   ReactivationRoute: ReactivationRoute,
+  RevenueRoute: RevenueRouteWithChildren,
   SessionsRoute: SessionsRoute,
   SourcesRoute: SourcesRoute,
   UnifiedLeadsRoute: UnifiedLeadsRouteWithChildren,
