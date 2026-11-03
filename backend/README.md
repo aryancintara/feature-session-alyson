@@ -11,3 +11,13 @@ These Lambdas are already live in AWS account `221490242148`, region `us-west-2`
 | `session-explorer-api` | Session Explorer API | Session Explorer pages |
 
 `sql/` is the Iceberg `unified.reconciliation_log` table used by Check.
+
+## Auth
+
+UI APIs require a Cognito **ID token** (same pool/client as Alyson) and `x-workspace-id`. Data is filtered by that workspace.
+
+Headers:
+- `x-auth-token: <id token>` (or `Authorization: Bearer <id token>`)
+- `x-workspace-id: 253`
+
+Lambda env: `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`. See `cost-revenue-api/AUTH.md`.

@@ -3,18 +3,34 @@ import { isJourneyFilter, journeyFilterHonored, parseSessionPage, sessionRequest
 
 const SESSION_API_BASE = "https://6s2ai70d6l.execute-api.us-west-2.amazonaws.com/prod";
 
+function sessionAuthInput(input: { idToken?: string; workspaceId?: string }) {
+  const idToken = input?.idToken?.trim();
+  const workspaceId = input?.workspaceId?.trim();
+  if (!idToken || !/^[1-9][0-9]{0,9}$/.test(workspaceId || "")) throw new Error("Please sign in.");
+  return { idToken, workspaceId: workspaceId as string };
+}
+
+function sessionHeaders(apiKey: string, auth: { idToken: string; workspaceId: string }) {
+  return {
+    "x-api-key": apiKey,
+    accept: "application/json",
+    "x-auth-token": auth.idToken,
+    "x-workspace-id": auth.workspaceId,
+  };
+}
+
 export const fetchSessionDetailServer = createServerFn({ method: "POST" })
-  .inputValidator((input: { sessionId: string }) => {
+  .inputValidator((input: { sessionId: string; idToken?: string; workspaceId?: string }) => {
     const sessionId = input?.sessionId?.trim();
     if (!sessionId || sessionId.length > 512) throw new Error("A valid session ID is required.");
-    return { sessionId };
+    return { sessionId, ...sessionAuthInput(input) };
   })
   .handler(async ({ data }) => {
     const apiKey = process.env.SESSION_API_KEY;
     if (!apiKey) return { ok: false as const, error: "Session API key is not connected yet.", detail: null };
     try {
       const response = await fetch(`${SESSION_API_BASE}/sessions/${encodeURIComponent(data.sessionId)}`, {
-        headers: { "x-api-key": apiKey, accept: "application/json" },
+        headers: sessionHeaders(apiKey, data),
       });
       if (!response.ok) {
         return { ok: false as const, error: response.status === 404 ? "Session details were not found." : `Session details could not be loaded (${response.status}).`, detail: null };
@@ -30,14 +46,14 @@ type Count = { total: number | null; honored: boolean };
 
 /** Server-side proxy so the private Session API key never reaches the browser. */
 export const fetchSessionPageServer = createServerFn({ method: "POST" })
-  .inputValidator((input: { from: string; to: string; journey?: string | null }) => {
+  .inputValidator((input: { from: string; to: string; journey?: string | null; idToken?: string; workspaceId?: string }) => {
     if (!input || typeof input.from !== "string" || typeof input.to !== "string") {
       throw new Error("from and to are required");
     }
     if (input.journey != null && !isJourneyFilter(input.journey)) throw new Error("Unknown journey filter");
     // Validates range and caps page_size at 200.
     sessionRequest(input.from, input.to);
-    return { from: input.from, to: input.to, journey: (input.journey ?? null) as JourneyFilter | null };
+    return { from: input.from, to: input.to, journey: (input.journey ?? null) as JourneyFilter | null, ...sessionAuthInput(input) };
   })
   .handler(async ({ data }) => {
     const apiKey = process.env.SESSION_API_KEY;
@@ -46,7 +62,7 @@ export const fetchSessionPageServer = createServerFn({ method: "POST" })
     }
     const get = (pageSize: number, journey: JourneyFilter | null) =>
       fetch(`${SESSION_API_BASE}/sessions?${sessionRequest(data.from, data.to, pageSize, journey)}`, {
-        headers: { "x-api-key": apiKey, accept: "application/json" },
+        headers: sessionHeaders(apiKey, data),
       });
 
     // Counts come from each response's total (page_size=1), never from downloaded row counts.

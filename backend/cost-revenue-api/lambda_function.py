@@ -21,8 +21,11 @@ from datetime import datetime, timedelta, timezone
 
 import boto3
 
+from auth import AuthError, authenticate_request, auth_response, cors_headers
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+_auth = None
 
 RULES_TABLE = "unified.rule"
 LOG_TABLE = "unified.reconciliation_log"
@@ -89,9 +92,21 @@ class BadRequest(Exception):
 def response(status, body):
     return {
         "statusCode": status,
-        "headers": {"content-type": "application/json"},
+        "headers": cors_headers(),
         "body": json.dumps(body, default=str),
     }
+
+
+def workspace_id():
+    if _auth is None or not _auth.workspace_id:
+        raise BadRequest("workspace is required")
+    return _auth.workspace_id
+
+
+def actor_email():
+    if _auth is None:
+        return "system"
+    return _auth.user.get("verifiedEmail") or _auth.user.get("email") or _auth.user.get("cognitoSub") or "system"
 
 
 def sql_string(value):
@@ -135,6 +150,7 @@ def list_rules():
                CAST(effective_from AS varchar), CAST(effective_to AS varchar),
                created_by, CAST(created_at AS varchar), workspace_id
         FROM {RULES_TABLE}
+        WHERE workspace_id = {sql_string(workspace_id())}
         ORDER BY rule_id, rule_version
         """
     )
@@ -218,6 +234,7 @@ def save_rule(body):
         SET status = 'INACTIVE', effective_to = current_timestamp
         WHERE rule_id = {sql_string(rule['rule_id'])}
           AND status = 'ACTIVE'
+          AND workspace_id = {sql_string(workspace_id())}
         """
     )
     start_and_wait(
@@ -230,7 +247,7 @@ def save_rule(body):
                {sql_string(rule['source_id'])}, {sql_string(rule['source_table'])},
                {sql_string(rule['conditions'])}, {sql_string(rule['calculation'])},
                'ACTIVE', current_timestamp, CAST(NULL AS timestamp),
-               {sql_string(rule['created_by'])}, current_timestamp, '253'
+               {sql_string(actor_email())}, current_timestamp, {sql_string(workspace_id())}
         """
     )
     return response(201, {"rule_id": rule["rule_id"], "rule_version": next_version, "status": "ACTIVE"})
@@ -251,6 +268,7 @@ def deactivate(body):
         SET status = 'INACTIVE', effective_to = current_timestamp
         WHERE rule_id = {sql_string(rule_id)}
           AND rule_version = {version}
+          AND workspace_id = {sql_string(workspace_id())}
         """
     )
     return response(200, {"rule_id": rule_id, "rule_version": version, "status": "INACTIVE"})
@@ -1164,6 +1182,7 @@ def list_reconciliation_log():
                CAST(difference AS varchar), how, CAST(locked AS varchar),
                CAST(missing_leads AS varchar), missing_lead_ids
         FROM {LOG_TABLE}
+        WHERE workspace_id = {sql_string(workspace_id())}
         ORDER BY checked_at DESC
         """
     )
@@ -1205,6 +1224,7 @@ def matched_log_row(source_id, start, end):
         WHERE source_id = {sql_string(source_id)}
           AND result = 'matched'
           AND locked = true
+          AND workspace_id = {sql_string(workspace_id())}
           AND DATE {sql_string(start)} >= period_start
           AND DATE {sql_string(end)} <= period_end
         ORDER BY period_end DESC, checked_at DESC
@@ -1245,7 +1265,7 @@ def save_reconciliation_log(row):
             {row['difference'] if row['difference'] is not None else 'CAST(NULL AS decimal(18,2))'} AS difference,
             {sql_string(row['how'])} AS how,
             {str(bool(row['locked'])).lower()} AS locked,
-            '253' AS workspace_id,
+            {sql_string(workspace_id())} AS workspace_id,
             {row['missing_leads'] if row.get('missing_leads') is not None else 'CAST(NULL AS integer)'} AS missing_leads,
             {sql_string(row.get('missing_lead_ids') or '[]')} AS missing_lead_ids
         ) s
@@ -1458,7 +1478,7 @@ def load_missing_sql(source_id, start, end, lead_ids):
     ) VALUES (
       s.event_id, s.session_id, s.revenue, 'USD', 'reconciliation_load', 1, '{source_id}', '{table}',
       s.event_time, 'PROCESSED', s.inputs, current_timestamp, 'reconcile-load', 'lead_id_bridge',
-      s.client_id, '253', s.d, s.offer_id, s.vendor_id, s.lead_id, s.unified_lead_id
+      s.client_id, {sql_string(workspace_id())}, s.d, s.offer_id, s.vendor_id, s.lead_id, s.unified_lead_id
     )
     """
 
@@ -1692,10 +1712,15 @@ def daily_report():
 
 
 def lambda_handler(event, context):
+    global _auth
+    _auth = None
     if (event or {}).get("mode") == "daily_report":
         return daily_report()
     route = (event or {}).get("routeKey", "")
+    if str(route).startswith("OPTIONS"):
+        return {"statusCode": 204, "headers": cors_headers(), "body": ""}
     try:
+        _auth = authenticate_request(event, require_workspace=True)
         if route == "GET /rules":
             return list_rules()
         if route == "GET /rules/columns":
@@ -1718,6 +1743,8 @@ def lambda_handler(event, context):
         if route == "POST /reconcile/load-missing":
             return reconcile_load(body)
         return response(404, {"error": "not found"})
+    except AuthError as exc:
+        return auth_response(exc, cors_headers())
     except BadRequest as exc:
         return response(400, {"error": str(exc)})
     except json.JSONDecodeError:

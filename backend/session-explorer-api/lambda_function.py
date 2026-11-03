@@ -8,6 +8,8 @@ from decimal import Decimal
 
 import boto3
 
+from auth import AuthError, authenticate_request, auth_response, cors_headers
+
 ATHENA = boto3.client("athena")
 WORKGROUP = os.environ.get("ATHENA_WORKGROUP", "ipintel_etl")
 DATABASE = os.environ.get("ATHENA_DATABASE", "unified")
@@ -36,15 +38,16 @@ END
 """
 
 
+_workspace = None
+
+
 def _headers(origin):
-    allow_origin = origin if origin else "*"
-    return {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": allow_origin,
-        "Access-Control-Allow-Methods": "GET,OPTIONS",
-        "Access-Control-Allow-Headers": "x-api-key,content-type",
-        "Vary": "Origin",
-    }
+    headers = cors_headers("GET,OPTIONS")
+    headers["access-control-allow-headers"] = "content-type,authorization,x-auth-token,x-workspace-id,x-api-key"
+    if origin:
+        headers["access-control-allow-origin"] = origin
+        headers["vary"] = "Origin"
+    return headers
 
 
 def _resp(status, body, origin):
@@ -454,8 +457,13 @@ def _filters(qs):
         raise ValueError("to must be after from")
     if (end - start).days > 31:
         raise ValueError("date range cannot exceed 31 days")
-    params = [start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")]
-    where = ["s.session_date >= DATE ?", "s.session_date < DATE ?", "s.session_start IS NOT NULL"]
+    params = [start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), _workspace]
+    where = [
+        "s.session_date >= DATE ?",
+        "s.session_date < DATE ?",
+        "s.session_start IS NOT NULL",
+        "cast(s.workspace_id AS varchar) = ?",
+    ]
     applied = {}
     search = _nullish(qs.get("search"))
     if search:
@@ -603,7 +611,7 @@ def _params_for(qs):
     now = datetime.now(timezone.utc)
     start = _parse_when(qs.get("from"), "from") or (now - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
     end = _parse_when(qs.get("to"), "to") or now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    params = [start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")]
+    params = [start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), _workspace]
     search = _nullish(qs.get("search"))
     if search:
         params.extend([search, search, search, search])
@@ -620,13 +628,13 @@ def _detail(session_id, origin):
     sql = f"""
 WITH filtered AS (
   SELECT s.* FROM unified.unified_session_summary s
-  WHERE s.session_id = ?
+  WHERE s.session_id = ? AND cast(s.workspace_id AS varchar) = ?
 ),
 {WITH_TAILS}
 {SELECT_CORE.replace("  s.session_ip,", "  s.session_ip,\n  s.plugin_json,", 1)}
 """
     try:
-        rows = _run(sql, [session_id])
+        rows = _run(sql, [session_id, _workspace])
     except TimeoutError:
         return _err(504, "The query took too long", origin)
     except RuntimeError:
@@ -884,10 +892,16 @@ FROM base
 
 
 def handler(event, context):
+    global _workspace
+    _workspace = None
     origin = (event.get("headers") or {}).get("origin") or (event.get("headers") or {}).get("Origin")
     method = (event.get("requestContext") or {}).get("http", {}).get("method") or event.get("httpMethod") or "GET"
     if method == "OPTIONS":
         return _resp(200, {}, origin)
+    try:
+        _workspace = authenticate_request(event, require_workspace=True).workspace_id
+    except AuthError as exc:
+        return auth_response(exc, _headers(origin))
     path = event.get("rawPath") or event.get("path") or ""
     path = path.split("?")[0]
     if path.endswith("/"):

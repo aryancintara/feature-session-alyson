@@ -1,4 +1,4 @@
-import { RULES_API_BASE } from "@/lib/rulesApi";
+import { RULES_API_BASE, rulesAuthHeaders } from "@/lib/rulesApi";
 
 export type DailyLead = Record<string, unknown>;
 export interface DailySource {
@@ -49,7 +49,7 @@ export function parseDailyReport(value: unknown, status = 200): DailyReport | nu
 }
 
 export async function getDailyReport(date = "", signal?: AbortSignal) {
-  const response = await fetch(dailyReportUrl(date), { signal });
+  const response = await fetch(dailyReportUrl(date), { signal, headers: await rulesAuthHeaders() });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Daily report unavailable (${response.status}).`);
   return parseDailyReport(await response.json());

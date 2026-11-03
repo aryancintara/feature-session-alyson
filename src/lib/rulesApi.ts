@@ -1,5 +1,18 @@
-// Browser client for the Cost & Revenue Rules API (AWS). No credentials/signing in the frontend.
+// Browser client for the Cost & Revenue Rules API (AWS). Sends the Cognito ID token and workspace.
+import { getLeadsCredentials } from "@/lib/unifiedLeadsAuth";
+
 export const RULES_API_BASE = (import.meta.env.VITE_RULES_API_BASE as string | undefined)?.replace(/\/$/, "") || "https://i4mf0v33aa.execute-api.us-west-2.amazonaws.com";
+
+export async function rulesAuthHeaders(extra?: HeadersInit): Promise<Record<string, string>> {
+  const creds = await getLeadsCredentials();
+  if (!creds) throw new RulesApiError(401, JSON.stringify({ code: "AUTHENTICATION_REQUIRED", message: "Please sign in." }));
+  return {
+    "Content-Type": "application/json",
+    "x-auth-token": creds.idToken,
+    "x-workspace-id": creds.tenant.workspaceId,
+    ...(extra as Record<string, string> | undefined),
+  };
+}
 
 export type RuleType = "COST" | "REVENUE";
 export interface RuleCondition { field: string; op: string; value?: string | number | (string | number)[] | null }
@@ -34,12 +47,18 @@ export const FORBIDDEN_MSG = "The rules API rejected this call. Browser access i
 
 export class RulesApiError extends Error {
   constructor(public status: number, public body: string) {
-    super(status === 403 ? FORBIDDEN_MSG : body || `Request failed (${status})`);
+    let message = body || `Request failed (${status})`;
+    try {
+      const parsed = JSON.parse(body) as { message?: string; error?: string };
+      if (parsed?.message) message = String(parsed.message);
+      else if (parsed?.error) message = String(parsed.error);
+    } catch { /* use raw body */ }
+    super(message);
   }
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${RULES_API_BASE}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
+  const res = await fetch(`${RULES_API_BASE}${path}`, { ...init, headers: await rulesAuthHeaders(init?.headers) });
   const text = await res.text();
   if (!res.ok) throw new RulesApiError(res.status, text);
   return (text ? JSON.parse(text) : {}) as T;
